@@ -54,6 +54,7 @@ public final class RtsClientInputGate {
     private static boolean captureRightRelease;
     private static boolean overlaySearchFocused;
     private static String overlaySearchDraft = "";
+    private static Screen activeOverlayScreen;
     private static final ItemStack[] RETURN_QUEUE = new ItemStack[RETURN_SLOTS];
     private static final long[] RETURN_QUEUE_EXPIRY = new long[RETURN_SLOTS];
 
@@ -106,6 +107,8 @@ public final class RtsClientInputGate {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?>)) {
             return;
         }
+
+        syncOverlayScreen(event.getScreen());
 
         Minecraft minecraft = Minecraft.getInstance();
         GuiGraphics g = event.getGuiGraphics();
@@ -287,6 +290,13 @@ public final class RtsClientInputGate {
             }
 
             int idx = resolveOverlaySlotIndex(mx, my, panelX + 6, panelY + GRID_Y_OFF);
+            if (!minecraft.player.containerMenu.getCarried().isEmpty()
+                    && idx >= 0
+                    && tryDepositCarriedToLinked(Integer.MAX_VALUE)) {
+                captureLeftRelease = true;
+                event.setCanceled(true);
+                return;
+            }
             if (tryPickupFromOverlay(idx, Integer.MAX_VALUE)) {
                 captureLeftRelease = true;
                 event.setCanceled(true);
@@ -312,6 +322,13 @@ public final class RtsClientInputGate {
             }
 
             int idx = resolveOverlaySlotIndex(mx, my, panelX + 6, panelY + GRID_Y_OFF);
+            if (!minecraft.player.containerMenu.getCarried().isEmpty()
+                    && idx >= 0
+                    && tryDepositCarriedToLinked(1)) {
+                captureRightRelease = true;
+                event.setCanceled(true);
+                return;
+            }
             if (tryPickupFromOverlay(idx, 1)) {
                 captureRightRelease = true;
                 event.setCanceled(true);
@@ -346,23 +363,7 @@ public final class RtsClientInputGate {
             return;
         }
 
-        Minecraft minecraft = Minecraft.getInstance();
-        int sw = minecraft.getWindow().getGuiScaledWidth();
-        int sh = minecraft.getWindow().getGuiScaledHeight();
-        int panelX = Math.max(OVERLAY_MARGIN, (sw - PANEL_W) / 2);
-        int panelY = resolvePanelY(event.getScreen(), sh);
-        int gridX = panelX + 6;
-        int gridY = panelY + GRID_Y_OFF;
-        int gridW = COLS * SLOT_PITCH;
-        int gridH = ROWS * SLOT_PITCH;
-        if (!inside(event.getMouseX(), event.getMouseY(), gridX, gridY, gridW, gridH)) {
-            return;
-        }
-
-        int requested = event.getButton() == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : Integer.MAX_VALUE;
-        if (tryDepositCarriedToLinked(requested)) {
-            event.setCanceled(true);
-        }
+        // Click-to-pick / click-to-return is handled on mouse press so the carried item does not snap back on release.
     }
 
     @SubscribeEvent
@@ -473,6 +474,7 @@ public final class RtsClientInputGate {
         captureRightRelease = false;
         overlaySearchFocused = false;
         overlaySearchDraft = "";
+        activeOverlayScreen = null;
         if (!ClientRtsController.get().isEnabled()) {
             pendingOverlayCarriedItemId = "";
             return;
@@ -569,6 +571,18 @@ public final class RtsClientInputGate {
         if (!next.equals(overlaySearchDraft)) {
             overlaySearchDraft = next;
             ClientRtsController.get().setStorageSearch(overlaySearchDraft);
+        }
+    }
+
+    private static void syncOverlayScreen(Screen screen) {
+        if (screen == activeOverlayScreen) {
+            return;
+        }
+        activeOverlayScreen = screen;
+        overlaySearchFocused = false;
+        overlaySearchDraft = "";
+        if (!ClientRtsController.get().getStorageSearch().isEmpty()) {
+            ClientRtsController.get().setStorageSearch("");
         }
     }
 

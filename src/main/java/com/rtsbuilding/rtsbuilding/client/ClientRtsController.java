@@ -757,6 +757,7 @@ public final class ClientRtsController {
     }
 
     public void openCraftTerminal() {
+        setStorageSearch("");
         this.pendingCraftTerminalOpen = true;
         this.pendingCraftTerminalOpenTicks = 120;
         PacketDistributor.sendToServer(new C2SRtsOpenCraftTerminalPayload());

@@ -512,10 +512,10 @@ public final class RtsStorageManager {
         List<Entry> entries = new ArrayList<>();
         for (var e : counts.entrySet()) {
             String id = e.getKey();
-            if (!query.isEmpty() && !id.toLowerCase(Locale.ROOT).contains(query)) {
+            ResourceLocation rl = ResourceLocation.tryParse(id);
+            if (!matchesSearchQuery(rl, id, query)) {
                 continue;
             }
-            ResourceLocation rl = ResourceLocation.tryParse(id);
             String namespace = rl == null ? "unknown" : rl.getNamespace();
             String path = rl == null ? id : rl.getPath();
             Set<String> tabs = itemTabKeys.getOrDefault(id, Set.of());
@@ -528,10 +528,10 @@ public final class RtsStorageManager {
         List<FluidEntry> fluidEntries = new ArrayList<>();
         for (var e : fluidAmounts.entrySet()) {
             String id = e.getKey();
-            if (!query.isEmpty() && !id.toLowerCase(Locale.ROOT).contains(query)) {
+            ResourceLocation rl = ResourceLocation.tryParse(id);
+            if (!matchesSearchQuery(rl, id, query)) {
                 continue;
             }
-            ResourceLocation rl = ResourceLocation.tryParse(id);
             String namespace = rl == null ? "unknown" : rl.getNamespace();
             String path = rl == null ? id : rl.getPath();
             if (selectedCategory.isCreativeTab() || !selectedCategory.matches(namespace, Set.of())) {
@@ -657,6 +657,22 @@ public final class RtsStorageManager {
         }
         // Backward compatibility for legacy category payloads that only sent namespace.
         return encodeModCategory(value);
+    }
+
+    private static boolean matchesSearchQuery(ResourceLocation id, String rawId, String query) {
+        if (query == null || query.isEmpty()) {
+            return true;
+        }
+        if (query.startsWith("@")) {
+            String modQuery = query.substring(1).trim();
+            if (modQuery.isEmpty()) {
+                return true;
+            }
+            String namespace = id == null ? "" : id.getNamespace().toLowerCase(Locale.ROOT);
+            return namespace.contains(modQuery);
+        }
+        String normalizedId = rawId == null ? "" : rawId.toLowerCase(Locale.ROOT);
+        return normalizedId.contains(query);
     }
 
     private static int compareNamespace(String a, String b) {

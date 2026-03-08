@@ -80,7 +80,8 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         this.searchBox.setCanLoseFocus(true);
         this.searchBox.setTextColor(0xEAF2FF);
         this.searchBox.setTextColorUneditable(0xAAB8C8);
-        this.searchBox.setValue(ClientRtsController.get().getStorageSearch());
+        ClientRtsController.get().setStorageSearch("");
+        this.searchBox.setValue("");
         this.searchBox.setResponder(this::onSearchChanged);
         this.addRenderableWidget(this.searchBox);
     }
@@ -157,17 +158,6 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if ((button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-                && isInsideLinkedGrid(mouseX, mouseY)
-                && !this.menu.getCarried().isEmpty()) {
-            return returnCarriedToLinked(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : Integer.MAX_VALUE);
-        }
-        return super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (this.searchBox != null && this.searchBox.isFocused()) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
@@ -301,6 +291,10 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         int importX = panelX + CARRIED_IMPORT_X_OFF;
         int importY = panelY + CARRIED_IMPORT_Y_OFF;
         if (inside(mouseX, mouseY, importX, importY, CARRIED_IMPORT_W, CARRIED_IMPORT_H)) {
+            return returnCarriedToLinked(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : Integer.MAX_VALUE);
+        }
+
+        if (!this.menu.getCarried().isEmpty() && isInsideLinkedGrid(mouseX, mouseY)) {
             return returnCarriedToLinked(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : Integer.MAX_VALUE);
         }
 

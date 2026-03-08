@@ -610,12 +610,14 @@ public final class BuilderScreen extends Screen {
             return redoLastPlacementBatch();
         }
 
-        if (!isSearchFocused() && (keyCode == GLFW.GLFW_KEY_PAGE_UP || keyCode == GLFW.GLFW_KEY_PAGE_DOWN)) {
+        if (!isSearchFocused()
+                && this.controller.getBuildShape() == ClientRtsController.BuildShape.BOX
+                && (keyCode == GLFW.GLFW_KEY_PAGE_UP || keyCode == GLFW.GLFW_KEY_PAGE_DOWN)) {
             int delta = keyCode == GLFW.GLFW_KEY_PAGE_UP ? 1 : -1;
             if (isAltDown()) {
                 delta *= 4;
             }
-            if (adjustShapeDimensionNudge(delta, hasShiftDown(), hasControlDown())) {
+            if (adjustBoxHeightNudge(delta)) {
                 return true;
             }
         }
@@ -1653,10 +1655,6 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (this.controller.hasSelectedItem()) {
-            this.controller.assignQuickSlotFromSelected(pinIndex);
-            return true;
-        }
         if (hasShiftDown()) {
             this.controller.clearQuickSlot(pinIndex);
             return true;
@@ -3104,6 +3102,15 @@ public final class BuilderScreen extends Screen {
                     camPos,
                     dir);
         }
+        BlockHitResult airShapeHit = tryCreateAirShapeHit(camPos, dir);
+        if (airShapeHit != null) {
+            return new InteractionTarget(
+                    C2SRtsInteractPayload.NO_ENTITY,
+                    airShapeHit.getLocation(),
+                    airShapeHit,
+                    camPos,
+                    dir);
+        }
         return null;
     }
 
@@ -3441,7 +3448,75 @@ public final class BuilderScreen extends Screen {
         if (hit instanceof BlockHitResult bhr && hit.getType() == HitResult.Type.BLOCK) {
             return bhr;
         }
-        return null;
+        return tryCreateAirShapeHit(camPos, dir);
+    }
+
+    private BlockHitResult tryCreateAirShapeHit(Vec3 camPos, Vec3 dir) {
+        if (camPos == null || dir == null) {
+            return null;
+        }
+        if (this.controller.getBuildShape() == ClientRtsController.BuildShape.BLOCK
+                && (this.shapeBuildSession == null || this.shapeBuildSession.shape() == ClientRtsController.BuildShape.BLOCK)) {
+            return null;
+        }
+
+        Direction face = resolveAirShapeFace(dir);
+        Vec3 planeAnchor = resolveAirShapePlaneAnchor(face);
+        if (face == null || planeAnchor == null) {
+            return null;
+        }
+
+        double dirComponent = switch (face.getAxis()) {
+            case X -> dir.x;
+            case Y -> dir.y;
+            case Z -> dir.z;
+        };
+        if (Math.abs(dirComponent) < 1.0E-5D) {
+            return null;
+        }
+
+        double planeCoord = switch (face.getAxis()) {
+            case X -> planeAnchor.x;
+            case Y -> planeAnchor.y;
+            case Z -> planeAnchor.z;
+        };
+        double originCoord = switch (face.getAxis()) {
+            case X -> camPos.x;
+            case Y -> camPos.y;
+            case Z -> camPos.z;
+        };
+        double t = (planeCoord - originCoord) / dirComponent;
+        if (t <= 0.0D || t > 128.0D) {
+            return null;
+        }
+
+        Vec3 hitVec = camPos.add(dir.scale(t));
+        return new BlockHitResult(hitVec, face, BlockPos.containing(hitVec), false);
+    }
+
+    private Direction resolveAirShapeFace(Vec3 dir) {
+        if (this.shapeBuildSession != null && this.shapeBuildSession.face() != null) {
+            return this.shapeBuildSession.face();
+        }
+        if (this.controller.getBuildShape() == ClientRtsController.BuildShape.BOX) {
+            return Direction.UP;
+        }
+        return Direction.getNearest(-dir.x, -dir.y, -dir.z);
+    }
+
+    private Vec3 resolveAirShapePlaneAnchor(Direction face) {
+        if (face == null || this.minecraft == null || this.minecraft.player == null) {
+            return null;
+        }
+        if (this.shapeBuildSession != null) {
+            if (this.shapeBuildSession.pointA() != null) {
+                return Vec3.atCenterOf(this.shapeBuildSession.pointA());
+            }
+            if (this.shapeBuildSession.pointB() != null) {
+                return Vec3.atCenterOf(this.shapeBuildSession.pointB());
+            }
+        }
+        return Vec3.atCenterOf(this.minecraft.player.blockPosition());
     }
 
     private boolean isWheelModifierDown() {
