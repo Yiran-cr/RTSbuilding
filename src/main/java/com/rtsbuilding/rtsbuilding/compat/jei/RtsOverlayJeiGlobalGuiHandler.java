@@ -25,7 +25,8 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
     private static final int SLOT_SIZE = 18;
     private static final int COLS = 9;
     private static final int ROWS = 4;
-    private static final int GRID_Y_OFF = 17;
+    private static final int QUICKBAR_Y_OFF = 17;
+    private static final int GRID_Y_OFF = QUICKBAR_Y_OFF + SLOT_SIZE + 6;
     private static final int RETURN_LABEL_Y_OFF = GRID_Y_OFF + ROWS * SLOT_PITCH + 2;
     private static final int RETURN_Y_OFF = RETURN_LABEL_Y_OFF + 9;
     private static final int OVERLAY_H = RETURN_Y_OFF + SLOT_SIZE + 6;

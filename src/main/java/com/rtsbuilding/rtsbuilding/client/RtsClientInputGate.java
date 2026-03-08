@@ -41,7 +41,8 @@ public final class RtsClientInputGate {
     private static final int COLS = 9;
     private static final int ROWS = 4;
     private static final int RETURN_SLOTS = 5;
-    private static final int GRID_Y_OFF = 17;
+    private static final int QUICKBAR_Y_OFF = 17;
+    private static final int GRID_Y_OFF = QUICKBAR_Y_OFF + SLOT_SIZE + 6;
     private static final int RETURN_LABEL_Y_OFF = GRID_Y_OFF + ROWS * SLOT_PITCH + 2;
     private static final int RETURN_Y_OFF = RETURN_LABEL_Y_OFF + 9;
     private static final int OVERLAY_H = RETURN_Y_OFF + SLOT_SIZE + 6;
@@ -167,6 +168,10 @@ public final class RtsClientInputGate {
         g.drawString(minecraft.font, ">", pageX + 50, panelY + 5, 0xFFFFFF);
         g.drawString(minecraft.font, (controller.getStoragePage() + 1) + "/" + controller.getStorageTotalPages(), pageX + 15, panelY + 5, 0xDDDDDD);
 
+        int quickbarX = panelX + 6;
+        int quickbarY = panelY + QUICKBAR_Y_OFF;
+        renderQuickbar(g, minecraft.font, quickbarX, quickbarY);
+
         int gridX = panelX + 6;
         int gridY = panelY + GRID_Y_OFF;
         var entries = controller.getStorageEntries();
@@ -277,6 +282,13 @@ public final class RtsClientInputGate {
                 return;
             }
             overlaySearchFocused = false;
+            int quickbarIdx = resolveQuickbarSlotIndex(mx, my, panelX + 6, panelY + QUICKBAR_Y_OFF);
+            if (quickbarIdx >= 0) {
+                selectOverlayQuickbarSlot(quickbarIdx);
+                captureLeftRelease = true;
+                event.setCanceled(true);
+                return;
+            }
             if (inside(mx, my, pageX, panelY + 3, 12, 11)) {
                 ClientRtsController.get().prevPage();
                 captureLeftRelease = true;
@@ -657,6 +669,18 @@ public final class RtsClientInputGate {
         return row * COLS + col;
     }
 
+    private static int resolveQuickbarSlotIndex(double mouseX, double mouseY, int x, int y) {
+        if (!inside(mouseX, mouseY, x, y, COLS * SLOT_PITCH, SLOT_SIZE)) {
+            return -1;
+        }
+        int col = Mth.floor((mouseX - x) / SLOT_PITCH);
+        if (col < 0 || col >= COLS) {
+            return -1;
+        }
+        int slotX = x + col * SLOT_PITCH;
+        return mouseX <= slotX + SLOT_SIZE ? col : -1;
+    }
+
     private static boolean tryImportHoveredMenuSlot(AbstractContainerScreen<?> screen, double mouseX, double mouseY, int button) {
         int menuSlot = resolveHoveredMenuSlot(screen, mouseX, mouseY);
         if (menuSlot < 0) {
@@ -759,6 +783,52 @@ public final class RtsClientInputGate {
         }
         carried.grow(grow);
         minecraft.player.containerMenu.setCarried(carried);
+    }
+
+    private static void renderQuickbar(GuiGraphics g, Font font, int x, int y) {
+        ClientRtsController controller = ClientRtsController.get();
+        for (int i = 0; i < COLS; i++) {
+            int cx = x + i * SLOT_PITCH;
+            int cy = y;
+            ItemStack preview = controller.getQuickSlotPreview(i);
+            String itemId = controller.getQuickSlotItemId(i);
+            boolean filled = itemId != null && !itemId.isBlank();
+            int bg = filled ? 0xAA253043 : 0xAA1A1A1A;
+            g.fill(cx, cy, cx + SLOT_SIZE, cy + SLOT_SIZE, bg);
+            g.hLine(cx, cx + SLOT_SIZE, cy, 0xFF67758A);
+            g.hLine(cx, cx + SLOT_SIZE, cy + SLOT_SIZE, 0xFF0C0D10);
+            g.vLine(cx, cy, cy + SLOT_SIZE, 0xFF67758A);
+            g.vLine(cx + SLOT_SIZE, cy, cy + SLOT_SIZE, 0xFF0C0D10);
+
+            if (!preview.isEmpty()) {
+                g.renderItem(preview, cx + 1, cy + 1);
+                if (itemId.equals(controller.getSelectedItemId())) {
+                    g.fill(cx + 1, cy + 1, cx + SLOT_SIZE - 1, cy + SLOT_SIZE - 1, 0x3340FF80);
+                }
+                drawSlotCountOverlay(g, font, cx, cy, SLOT_SIZE, compactCount(resolvePinnedItemCount(itemId)), 0xFFF7E6A8);
+            } else {
+                g.drawCenteredString(font, Integer.toString(i + 1), cx + SLOT_SIZE / 2, cy + 5, 0x88D0D8E4);
+            }
+        }
+    }
+
+    private static long resolvePinnedItemCount(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return 0L;
+        }
+        for (ClientRtsController.StorageEntry entry : ClientRtsController.get().getStorageEntries()) {
+            if (itemId.equals(entry.itemId())) {
+                return entry.count();
+            }
+        }
+        return 0L;
+    }
+
+    private static void selectOverlayQuickbarSlot(int index) {
+        if (index < 0 || index >= COLS) {
+            return;
+        }
+        ClientRtsController.get().selectQuickSlot(index);
     }
 
     private static boolean tryPickupFromOverlay(int index, int requestedAmount) {
