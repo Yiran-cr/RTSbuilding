@@ -22,6 +22,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import com.rtsbuilding.rtsbuilding.client.BuilderMode;
+import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.compat.ftb.RtsFtbCompat;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsLinkStoragePayload;
@@ -453,7 +454,7 @@ public final class RtsStorageManager {
         Session session = getOrCreateSession(player);
         sanitizeSessionDimension(player, session);
 
-        IItemHandler itemHandler = findHandler(player, pos);
+        IItemHandler itemHandler = findLinkedItemHandler(player, pos);
         IFluidHandler fluidHandler = findFluidHandler(player, pos);
         if (itemHandler == null && fluidHandler == null) {
             requestPage(player, 0, session.search, session.category, session.sort, session.ascending);
@@ -752,7 +753,7 @@ public final class RtsStorageManager {
                 if (!predicate.test(stack)) {
                     continue;
                 }
-                total += stack.getCount();
+                total += getHandlerReportedCount(handler, slot, stack);
             }
         }
         return total;
@@ -785,8 +786,9 @@ public final class RtsStorageManager {
                 if (id == null) {
                     continue;
                 }
-                counts.merge(id.toString(), (long) stack.getCount(), Long::sum);
-                namespaceTotals.merge(id.getNamespace(), (long) stack.getCount(), Long::sum);
+                long reportedCount = getHandlerReportedCount(handler, i, stack);
+                counts.merge(id.toString(), reportedCount, Long::sum);
+                namespaceTotals.merge(id.getNamespace(), reportedCount, Long::sum);
             }
         }
         boolean includePlayerMainInventory = !session.linkedPositions.isEmpty()
@@ -1288,7 +1290,7 @@ public final class RtsStorageManager {
                 if (id == null) {
                     continue;
                 }
-                counts.merge(id.toString(), (long) stack.getCount(), Long::sum);
+                counts.merge(id.toString(), getHandlerReportedCount(handler, i, stack), Long::sum);
             }
         }
 
@@ -2815,6 +2817,66 @@ public final class RtsStorageManager {
         player.containerMenu.broadcastChanges();
         requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         runQuestDetect(player, session, false);
+    }
+
+    public static void fillPlayerInventoryFromLinked(ServerPlayer player) {
+        Session session = SESSIONS.get(player.getUUID());
+        if (session == null) {
+            return;
+        }
+        sanitizeSessionDimension(player, session);
+        if (session.linkedPositions.isEmpty()) {
+            return;
+        }
+
+        List<LinkedHandler> activeLinked = resolveLinkedHandlers(player, session);
+        if (activeLinked.isEmpty()) {
+            return;
+        }
+        List<IItemHandler> handlers = new ArrayList<>(activeLinked.size());
+        for (LinkedHandler linked : activeLinked) {
+            handlers.add(linked.handler());
+        }
+
+        int movedCount = 0;
+        boolean inventoryFull = false;
+        outer: for (IItemHandler handler : handlers) {
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                while (true) {
+                    ItemStack preview = handler.getStackInSlot(slot);
+                    if (preview.isEmpty()) {
+                        break;
+                    }
+
+                    int requestAmount = Math.max(1, preview.getMaxStackSize());
+                    ItemStack extracted = handler.extractItem(slot, requestAmount, false);
+                    if (extracted.isEmpty()) {
+                        break;
+                    }
+
+                    int extractedCount = extracted.getCount();
+                    ItemStack remain = moveToPlayerInventoryOnly(player, extracted);
+                    movedCount += Math.max(0, extractedCount - remain.getCount());
+                    if (!remain.isEmpty()) {
+                        refundToLinked(handlers, player, remain);
+                        inventoryFull = true;
+                        break outer;
+                    }
+                }
+            }
+        }
+
+        if (movedCount > 0) {
+            player.containerMenu.broadcastChanges();
+            requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            player.displayClientMessage(
+                    Component.literal(inventoryFull
+                            ? "Moved " + movedCount + " items to inventory. Inventory is full."
+                            : "Moved " + movedCount + " items to inventory."),
+                    true);
+        } else if (inventoryFull) {
+            player.displayClientMessage(Component.literal("Inventory is full."), true);
+        }
     }
 
     public static void mine(ServerPlayer player, BlockPos pos, Direction face, boolean start, byte toolSlot) {
@@ -4911,6 +4973,14 @@ public final class RtsStorageManager {
         return null;
     }
 
+    private static IItemHandler findLinkedItemHandler(ServerPlayer player, BlockPos pos) {
+        IItemHandler ae2Network = RtsAe2Compat.createNetworkItemHandler(player, pos);
+        if (ae2Network != null) {
+            return ae2Network;
+        }
+        return findHandler(player, pos);
+    }
+
     private static IFluidHandler findFluidHandler(ServerPlayer player, BlockPos pos) {
         if (!player.serverLevel().hasChunkAt(pos)) {
             return null;
@@ -4943,7 +5013,7 @@ public final class RtsStorageManager {
             if (!player.serverLevel().hasChunkAt(pos)) {
                 continue;
             }
-            IItemHandler handler = findHandler(player, pos);
+            IItemHandler handler = findLinkedItemHandler(player, pos);
             if (handler == null) {
                 continue;
             }
@@ -5097,6 +5167,10 @@ public final class RtsStorageManager {
             packed.add(pos.asLong());
         }
         return packed;
+    }
+
+    private static long getHandlerReportedCount(IItemHandler handler, int slot, ItemStack stack) {
+        return RtsAe2Compat.getReportedCount(handler, slot, stack);
     }
 
     private record Entry(String itemId, String namespace, String path, long count) {

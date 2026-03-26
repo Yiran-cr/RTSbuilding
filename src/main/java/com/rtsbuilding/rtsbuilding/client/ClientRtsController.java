@@ -19,6 +19,7 @@ import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsBreakPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsFunnelTargetPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsCraftRecipePayload;
+import com.rtsbuilding.rtsbuilding.network.C2SRtsFillInventoryPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsLinkStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsMinePayload;
@@ -197,11 +198,16 @@ public final class ClientRtsController {
     private BlockPos lastFunnelTarget;
     private int funnelTargetCooldownTicks;
     private final List<FunnelBufferEntry> funnelBufferEntries = new ArrayList<>();
+    private double storagePanelXNormalized;
+    private double storagePanelYNormalized;
+    private double storagePanelWidthNormalized;
+    private double storagePanelHeightNormalized;
 
     // Local render-only camera entity to isolate rendering from network interpolation.
     private RtsCameraEntity localMirrorCamera;
 
     private ClientRtsController() {
+        applyStoredLayout(RtsClientLayoutStore.loadStoragePanelLayout());
         this.storageCategories.add("all");
         for (int i = 0; i < QUICK_SLOT_COUNT; i++) {
             this.quickSlotItemIds[i] = "";
@@ -284,6 +290,34 @@ public final class ClientRtsController {
 
     public void toggleStorageCollapsed() {
         this.storageCollapsed = !this.storageCollapsed;
+    }
+
+    public double getStoragePanelXNormalized() {
+        return this.storagePanelXNormalized;
+    }
+
+    public double getStoragePanelYNormalized() {
+        return this.storagePanelYNormalized;
+    }
+
+    public double getStoragePanelWidthNormalized() {
+        return this.storagePanelWidthNormalized;
+    }
+
+    public double getStoragePanelHeightNormalized() {
+        return this.storagePanelHeightNormalized;
+    }
+
+    public void updateStoragePanelLayout(double xNormalized, double yNormalized, double widthNormalized, double heightNormalized) {
+        this.storagePanelXNormalized = clampLayoutNormalized(xNormalized);
+        this.storagePanelYNormalized = clampLayoutNormalized(yNormalized);
+        this.storagePanelWidthNormalized = clampLayoutNormalized(widthNormalized);
+        this.storagePanelHeightNormalized = clampLayoutNormalized(heightNormalized);
+        RtsClientLayoutStore.saveStoragePanelLayout(new RtsClientLayoutStore.StoragePanelLayout(
+                this.storagePanelXNormalized,
+                this.storagePanelYNormalized,
+                this.storagePanelWidthNormalized,
+                this.storagePanelHeightNormalized));
     }
 
     public boolean isStorageLinked() {
@@ -1038,6 +1072,10 @@ public final class ClientRtsController {
         PacketDistributor.sendToServer(new C2SRtsStoreHotbarSlotPayload((byte) Mth.clamp(slot, 0, 8)));
     }
 
+    public void fillInventoryFromLinked() {
+        PacketDistributor.sendToServer(new C2SRtsFillInventoryPayload());
+    }
+
     private boolean shouldUseRtsCraftTerminalScreen(CraftingScreen craftingScreen) {
         if (this.pendingCraftTerminalOpen) {
             return true;
@@ -1287,6 +1325,23 @@ public final class ClientRtsController {
 
     private static String normalizeCraftablesSearch(String search) {
         return search == null ? "" : search.trim();
+    }
+
+    private void applyStoredLayout(RtsClientLayoutStore.StoragePanelLayout layout) {
+        RtsClientLayoutStore.StoragePanelLayout safe = layout == null
+                ? RtsClientLayoutStore.loadStoragePanelLayout()
+                : layout;
+        this.storagePanelXNormalized = clampLayoutNormalized(safe.xNormalized());
+        this.storagePanelYNormalized = clampLayoutNormalized(safe.yNormalized());
+        this.storagePanelWidthNormalized = clampLayoutNormalized(safe.widthNormalized());
+        this.storagePanelHeightNormalized = clampLayoutNormalized(safe.heightNormalized());
+    }
+
+    private static double clampLayoutNormalized(double value) {
+        if (!Double.isFinite(value)) {
+            return 0.0D;
+        }
+        return Mth.clamp(value, 0.0D, 1.0D);
     }
 
     private long getStorageFluidAmount(String fluidId) {

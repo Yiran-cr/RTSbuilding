@@ -122,6 +122,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handleFunnelTarget);
 
         registrar.playToServer(
+                C2SRtsFillInventoryPayload.TYPE,
+                C2SRtsFillInventoryPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleFillInventory);
+
+        registrar.playToServer(
                 C2SRtsLinkedPickupPayload.TYPE,
                 C2SRtsLinkedPickupPayload.STREAM_CODEC,
                 RtsNetworkHandlers::handleLinkedPickup);

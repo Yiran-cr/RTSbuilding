@@ -44,6 +44,12 @@ public final class BuilderScreen extends Screen {
     private static final int DEFAULT_BOTTOM_H = 110;
     private static final int MIN_BOTTOM_H = 72;
     private static final int MAX_BOTTOM_H = 320;
+    private static final int BOTTOM_PANEL_MIN_W = 560;
+    private static final int BOTTOM_PANEL_PADDING = 8;
+    private static final int BOTTOM_PANEL_HEADER_H = 18;
+    private static final int BOTTOM_PANEL_FILL_BUTTON_W = 64;
+    private static final int BOTTOM_PANEL_DRAG_HANDLE_MIN_W = 84;
+    private static final int BOTTOM_PANEL_RESIZE_STEP_W = 48;
     private static final int MIN_STORAGE_GRID_ROWS = 2;
     private static final int GRID_BOTTOM_PADDING = 4;
     private static final int SLOT = 22;
@@ -122,6 +128,12 @@ public final class BuilderScreen extends Screen {
     private int categoryScroll = 0;
     private final Set<String> expandedCategoryMods = new HashSet<>();
     private int bottomPanelHeight = DEFAULT_BOTTOM_H;
+    private int bottomPanelWidth = BOTTOM_PANEL_MIN_W;
+    private int bottomPanelX = 8;
+    private int bottomPanelY = 0;
+    private boolean bottomPanelDragging = false;
+    private double bottomPanelDragOffsetX = 0.0D;
+    private double bottomPanelDragOffsetY = 0.0D;
     private boolean rightPressActive = false;
     private boolean rightDragRotated = false;
     private double rightDragDistance = 0.0D;
@@ -181,6 +193,7 @@ public final class BuilderScreen extends Screen {
         }
         this.craftSearchBox.setValue(this.craftSearchDraft);
         this.craftSearchBox.setResponder(value -> this.craftSearchDraft = value == null ? "" : value);
+        restoreBottomPanelLayout();
         this.controller.requestCraftables();
     }
 
@@ -202,6 +215,7 @@ public final class BuilderScreen extends Screen {
         this.pendingGuiBindSlot = -1;
         this.altShapeMenuHeld = false;
         this.funnelHotkeyHeld = false;
+        this.bottomPanelDragging = false;
         this.controller.abortMining(getSelectedToolSlot());
         this.leftMiningActive = false;
         if (this.controller.isFunnelEnabled()) {
@@ -316,7 +330,7 @@ public final class BuilderScreen extends Screen {
                 return true;
             }
 
-            if (this.pendingGuiBindSlot >= 0 && isWorldArea(mouseY)) {
+            if (this.pendingGuiBindSlot >= 0 && isWorldArea(mouseX, mouseY)) {
                 BlockHitResult hit = pickBlockHit();
                 if (hit != null) {
                     this.controller.setGuiBinding(this.pendingGuiBindSlot, hit.getBlockPos());
@@ -325,7 +339,7 @@ public final class BuilderScreen extends Screen {
                 return true;
             }
 
-            if (isWorldArea(mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
+            if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
                 BlockHitResult hit = pickBlockHit();
                 if (hit != null) {
                     this.controller.linkStorage(hit.getBlockPos());
@@ -333,7 +347,7 @@ public final class BuilderScreen extends Screen {
                 }
             }
 
-            if (isWorldArea(mouseY)
+            if (isWorldArea(mouseX, mouseY)
                     && this.controller.getMode() != BuilderMode.LINK_STORAGE
                     && this.controller.getMode() != BuilderMode.FUNNEL) {
                 BlockHitResult hit = pickBlockHit();
@@ -350,20 +364,20 @@ public final class BuilderScreen extends Screen {
             if (isSearchFocused()) {
                 blurSearchFocus();
             }
-            if (this.pendingGuiBindSlot >= 0 && isWorldArea(mouseY)) {
+            if (this.pendingGuiBindSlot >= 0 && isWorldArea(mouseX, mouseY)) {
                 return true;
             }
-            if (isWorldArea(mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
+            if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
                 BlockHitResult hit = pickBlockHit();
                 if (hit != null) {
                     this.controller.linkStorage(hit.getBlockPos(), false);
                 }
                 return true;
             }
-            if (mouseY >= getBottomY()) {
+            if (isInsideBottomPanel(mouseX, mouseY)) {
                 return handleBottomPanelRightClick(mouseX, mouseY);
             }
-            if (isWorldArea(mouseY) && this.controller.getMode() == BuilderMode.ROTATE) {
+            if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.ROTATE) {
                 BlockHitResult hit = pickBlockHit();
                 if (hit != null) {
                     clearShapeBuildSession();
@@ -371,7 +385,7 @@ public final class BuilderScreen extends Screen {
                 }
                 return true;
             }
-            if (isWorldArea(mouseY)) {
+            if (isWorldArea(mouseX, mouseY)) {
                 this.rightPressActive = true;
                 this.rightDragRotated = false;
                 this.rightDragDistance = 0.0D;
@@ -407,6 +421,11 @@ public final class BuilderScreen extends Screen {
         }
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (this.bottomPanelDragging) {
+                this.bottomPanelDragging = false;
+                persistBottomPanelLayout(resolveBottomPanelLayout());
+                return true;
+            }
             if (this.leftMiningActive) {
                 this.leftMiningActive = false;
                 this.controller.abortMining(getSelectedToolSlot());
@@ -426,7 +445,7 @@ public final class BuilderScreen extends Screen {
                 return true;
             }
 
-            if (!isWorldArea(mouseY)) {
+            if (!isWorldArea(mouseX, mouseY)) {
                 return true;
             }
 
@@ -552,7 +571,12 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && this.rightPressActive && isWorldArea(mouseY) && !isAltDown()) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && this.bottomPanelDragging) {
+            updateBottomPanelDrag(mouseX, mouseY);
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && this.rightPressActive && isWorldArea(mouseX, mouseY) && !isAltDown()) {
             this.rightDragDistance += Math.abs(dragX) + Math.abs(dragY);
             if (this.rightDragDistance > 1.5D) {
                 this.rightDragRotated = true;
@@ -561,7 +585,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && isWorldArea(mouseY)) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && isWorldArea(mouseX, mouseY)) {
             this.controller.queuePanDrag(dragX, dragY);
             return true;
         }
@@ -606,21 +630,10 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (mouseY >= getBottomY()) {
-            int bottomY = getBottomY();
-            int bottomH = getBottomHeight();
-            int sortX = 8;
-            int categoryX = sortX + 58;
-            int storageX = categoryX + CATEGORY_W + 10;
-            int storageW = Math.max(120, this.width - storageX - 8);
-            int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
-            int toolY = bottomY + 21;
-            int gridY = toolY + TOOL_AREA_H + 4;
-            int gridH = Math.max(SLOT, bottomH - (gridY - bottomY) - 4);
-            int craftPanelY = bottomY + 21 + TOOL_AREA_H + 4;
-            int craftPanelH = computeCraftPanelHeight(Math.max(1, gridH / SLOT));
-            if (inside(mouseX, mouseY, craftPanelX, craftPanelY, CRAFT_PANEL_W, craftPanelH)) {
-                int visibleRows = Math.max(1, gridH / SLOT);
+        if (isInsideBottomPanel(mouseX, mouseY)) {
+            BottomPanelLayout layout = resolveBottomPanelLayout();
+            if (inside(mouseX, mouseY, layout.craftPanelX(), layout.craftPanelY(), CRAFT_PANEL_W, layout.craftPanelH())) {
+                int visibleRows = layout.storageRows();
                 int totalRows = Math.max(1, (int) Math.ceil(this.controller.getCraftableEntries().size() / (double) CRAFT_PANEL_COLS));
                 int maxScroll = Math.max(0, totalRows - visibleRows);
                 int delta = scrollY > 0.0D ? -1 : 1;
@@ -875,7 +888,6 @@ public final class BuilderScreen extends Screen {
         this.hoveredPinPageButton = false;
 
         guiGraphics.fill(0, 0, this.width, TOP_H, 0xC0101116);
-        guiGraphics.fill(0, getBottomY(), this.width, this.height, 0xD014151A);
 
         renderTopBar(guiGraphics);
         renderBottomPanel(guiGraphics, mouseX, mouseY, partialTick);
@@ -1332,11 +1344,24 @@ public final class BuilderScreen extends Screen {
     }
 
     private void renderBottomPanel(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        int bottomH = getBottomHeight();
-        int bottomY = getBottomY();
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        int bottomH = layout.panelH();
+        int bottomY = layout.panelY();
+        int sortX = layout.sortX();
+        int sortY = layout.sortY();
 
-        int sortX = 8;
-        int sortY = bottomY + 6;
+        drawPanelFrame(g, layout.panelX(), layout.panelY(), layout.panelW(), layout.panelH(), 0xD014151A, 0xFF64788E, 0xFF0D1015);
+        g.fill(layout.panelX() + 1, layout.panelY() + 1, layout.panelX() + layout.panelW() - 1, layout.panelY() + BOTTOM_PANEL_HEADER_H, 0xCC1C242F);
+        g.drawString(this.font, "RTS Storage", layout.panelX() + 8, layout.panelY() + 5, 0xF2F6FB);
+
+        int dragY = layout.panelY() + 2;
+        drawPanelFrame(g, layout.dragHandleX(), dragY, layout.dragHandleW(), 14, 0xAA29313B, 0xFF70859A, 0xFF10141A);
+        g.drawCenteredString(this.font, "drag", layout.dragHandleX() + layout.dragHandleW() / 2, layout.panelY() + 5, 0xCFE0F1);
+
+        int fillButtonY = layout.panelY() + 2;
+        int fillFill = this.controller.isStorageLinked() ? 0xAA315844 : 0xAA2A2D36;
+        drawPanelFrame(g, layout.fillButtonX(), fillButtonY, BOTTOM_PANEL_FILL_BUTTON_W, 14, fillFill, 0xFF6C8296, 0xFF10141A);
+        g.drawCenteredString(this.font, "Fill Inv", layout.fillButtonX() + BOTTOM_PANEL_FILL_BUTTON_W / 2, layout.panelY() + 5, 0xFFFFFF);
 
         drawSortButton(g, sortX, sortY, "S");
         drawSortButton(g, sortX, sortY + SORT_BUTTON_SIZE + 4, this.controller.isStorageSortAscending() ? "A" : "D");
@@ -1345,17 +1370,17 @@ public final class BuilderScreen extends Screen {
         drawSortButton(g, sortX + SORT_BUTTON_SIZE + 26, sortY + SORT_BUTTON_SIZE + 4, "-");
         drawCraftButton(g, sortX, sortY + (SORT_BUTTON_SIZE + 4) * 2 + 2, SORT_BUTTON_SIZE * 2 + 26, CRAFT_BUTTON_H);
 
-        int categoryX = sortX + 58;
-        int categoryY = bottomY + 4;
-        int categoryH = bottomH - 16;
+        int categoryX = layout.categoryX();
+        int categoryY = layout.categoryY();
+        int categoryH = layout.categoryH();
         drawCategoryPanel(g, mouseX, mouseY, categoryX, categoryY, CATEGORY_W, categoryH);
 
-        int storageX = categoryX + CATEGORY_W + 10;
-        int storageY = bottomY + 4;
-        int storageW = Math.max(120, this.width - storageX - 8);
-        int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
-        int mainStorageW = Math.max(120, craftPanelX - storageX - CRAFT_PANEL_GAP);
-        int searchW = Math.max(80, storageW - 102);
+        int storageX = layout.storageX();
+        int storageY = layout.storageY();
+        int storageW = layout.storageW();
+        int craftPanelX = layout.craftPanelX();
+        int mainStorageW = layout.mainStorageW();
+        int searchW = layout.searchW();
         int searchFieldW = computeSearchFieldWidth(searchW);
 
         if (this.searchBox != null) {
@@ -1367,17 +1392,17 @@ public final class BuilderScreen extends Screen {
             drawSearchClearButton(g, storageX, storageY, searchW);
         }
 
-        int pagerX = storageX + searchW + 4;
+        int pagerX = layout.pagerX();
         drawPager(g, pagerX, storageY);
 
-        int toolY = storageY + 17;
+        int toolY = layout.toolY();
         renderToolArea(g, mouseX, mouseY, storageX, toolY, mainStorageW);
 
-        int gridY = toolY + TOOL_AREA_H + 4;
-        int gridH = Math.max(SLOT, bottomH - (gridY - bottomY) - 4);
-        int storageRows = Math.max(1, gridH / SLOT);
-        int craftPanelY = storageY + 17 + TOOL_AREA_H + 4;
-        int craftPanelH = computeCraftPanelHeight(storageRows);
+        int gridY = layout.gridY();
+        int gridH = layout.gridH();
+        int storageRows = layout.storageRows();
+        int craftPanelY = layout.craftPanelY();
+        int craftPanelH = layout.craftPanelH();
         int fluidW = getFluidStripWidth(mainStorageW);
         int itemGridX = storageX;
         int itemGridW = mainStorageW;
@@ -1964,29 +1989,37 @@ public final class BuilderScreen extends Screen {
     }
 
     private boolean handleBottomPanelClick(double mouseX, double mouseY) {
-        int bottomH = getBottomHeight();
-        int bottomY = getBottomY();
-        if (mouseY < bottomY) {
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        if (!layout.contains(mouseX, mouseY)) {
             return false;
         }
 
-        int sortX = 8;
-        int sortY = bottomY + 6;
-        int categoryX = sortX + 58;
-        int storageX = categoryX + CATEGORY_W + 10;
-        int storageW = Math.max(120, this.width - storageX - 8);
-        int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
-        int mainStorageW = Math.max(120, craftPanelX - storageX - CRAFT_PANEL_GAP);
-        int searchW = Math.max(80, storageW - 102);
-        int pagerX = storageX + searchW + 4;
-        int toolY = bottomY + 21;
-        int gridY = toolY + TOOL_AREA_H + 4;
-        int gridH = Math.max(SLOT, bottomH - (gridY - bottomY) - 4);
-        int storageRows = Math.max(1, gridH / SLOT);
-        int craftPanelY = bottomY + 21 + TOOL_AREA_H + 4;
-        int craftPanelH = computeCraftPanelHeight(storageRows);
+        if (inside(mouseX, mouseY, layout.fillButtonX(), layout.panelY() + 2, BOTTOM_PANEL_FILL_BUTTON_W, 14)) {
+            this.controller.fillInventoryFromLinked();
+            return true;
+        }
+        if (inside(mouseX, mouseY, layout.dragHandleX(), layout.panelY() + 2, layout.dragHandleW(), 14)) {
+            beginBottomPanelDrag(mouseX, mouseY);
+            return true;
+        }
+        if (layout.isInsideHeader(mouseX, mouseY)) {
+            return true;
+        }
 
-        if (handleSearchClearClick(mouseX, mouseY, storageX, bottomY + 4, searchW)) {
+        int sortX = layout.sortX();
+        int sortY = layout.sortY();
+        int categoryX = layout.categoryX();
+        int storageX = layout.storageX();
+        int mainStorageW = layout.mainStorageW();
+        int searchW = layout.searchW();
+        int pagerX = layout.pagerX();
+        int toolY = layout.toolY();
+        int gridY = layout.gridY();
+        int gridH = layout.gridH();
+        int craftPanelY = layout.craftPanelY();
+        int craftPanelH = layout.craftPanelH();
+
+        if (handleSearchClearClick(mouseX, mouseY, storageX, layout.storageY(), searchW)) {
             return true;
         }
 
@@ -1995,7 +2028,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (handleCraftablesPanelLeftClick(mouseX, mouseY, craftPanelX, craftPanelY, CRAFT_PANEL_W, craftPanelH)) {
+        if (handleCraftablesPanelLeftClick(mouseX, mouseY, layout.craftPanelX(), craftPanelY, CRAFT_PANEL_W, craftPanelH)) {
             return true;
         }
 
@@ -2011,11 +2044,11 @@ public final class BuilderScreen extends Screen {
         }
         int heightBtnX = sortX + SORT_BUTTON_SIZE + 26;
         if (inside(mouseX, mouseY, heightBtnX, sortY, SORT_BUTTON_SIZE, SORT_BUTTON_SIZE)) {
-            adjustBottomPanelHeight(SLOT);
+            adjustBottomPanelSize(1);
             return true;
         }
         if (inside(mouseX, mouseY, heightBtnX, sortY + SORT_BUTTON_SIZE + 4, SORT_BUTTON_SIZE, SORT_BUTTON_SIZE)) {
-            adjustBottomPanelHeight(-SLOT);
+            adjustBottomPanelSize(-1);
             return true;
         }
         int craftBtnY = sortY + (SORT_BUTTON_SIZE + 4) * 2 + 2;
@@ -2025,7 +2058,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        int categoryY = bottomY + 4;
+        int categoryY = layout.categoryY();
         int upX0 = categoryX + CATEGORY_W - 24;
         int downX0 = categoryX + CATEGORY_W - 12;
         if (inside(mouseX, mouseY, upX0, categoryY + 1, 11, 10)) {
@@ -2054,11 +2087,11 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        if (inside(mouseX, mouseY, pagerX, bottomY + 4, 16, 14)) {
+        if (inside(mouseX, mouseY, pagerX, layout.storageY(), 16, 14)) {
             this.controller.prevPage();
             return true;
         }
-        if (inside(mouseX, mouseY, pagerX + 58, bottomY + 4, 16, 14)) {
+        if (inside(mouseX, mouseY, pagerX + 58, layout.storageY(), 16, 14)) {
             this.controller.nextPage();
             return true;
         }
@@ -2091,30 +2124,27 @@ public final class BuilderScreen extends Screen {
     }
 
     private boolean handleBottomPanelRightClick(double mouseX, double mouseY) {
-        int bottomH = getBottomHeight();
-        int bottomY = getBottomY();
-        if (mouseY < bottomY) {
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        if (!layout.contains(mouseX, mouseY)) {
             return false;
         }
+        if (layout.isInsideHeader(mouseX, mouseY)) {
+            return true;
+        }
 
-        int sortX = 8;
-        int categoryX = sortX + 58;
-        int storageX = categoryX + CATEGORY_W + 10;
-        int storageW = Math.max(120, this.width - storageX - 8);
-        int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
-        int mainStorageW = Math.max(120, craftPanelX - storageX - CRAFT_PANEL_GAP);
-        int toolY = bottomY + 21;
-        int gridY = toolY + TOOL_AREA_H + 4;
-        int gridH = Math.max(SLOT, bottomH - (gridY - bottomY) - 4);
-        int storageRows = Math.max(1, gridH / SLOT);
-        int craftPanelY = bottomY + 21 + TOOL_AREA_H + 4;
-        int craftPanelH = computeCraftPanelHeight(storageRows);
+        int storageX = layout.storageX();
+        int mainStorageW = layout.mainStorageW();
+        int toolY = layout.toolY();
+        int gridY = layout.gridY();
+        int gridH = layout.gridH();
+        int craftPanelY = layout.craftPanelY();
+        int craftPanelH = layout.craftPanelH();
 
         if (handleToolRowRightClick(mouseX, mouseY, storageX, toolY, mainStorageW)) {
             return true;
         }
 
-        if (handleCraftablesPanelRightClick(mouseX, mouseY, craftPanelX, craftPanelY, CRAFT_PANEL_W, craftPanelH)) {
+        if (handleCraftablesPanelRightClick(mouseX, mouseY, layout.craftPanelX(), craftPanelY, CRAFT_PANEL_W, craftPanelH)) {
             return true;
         }
 
@@ -2401,13 +2431,11 @@ public final class BuilderScreen extends Screen {
     }
 
     private CategoryClick resolveClickedCategoryAction(double mouseX, double mouseY) {
-        int bottomH = getBottomHeight();
-        int sortX = 8;
-        int bottomY = getBottomY();
-        int categoryX = sortX + 58;
-        int categoryY = bottomY + 4;
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        int categoryX = layout.categoryX();
+        int categoryY = layout.categoryY();
         int listY = categoryY + 13;
-        int listH = bottomH - 15;
+        int listH = layout.categoryH() - 15;
 
         if (!inside(mouseX, mouseY, categoryX + 2, listY, CATEGORY_W - 4, listH)) {
             return null;
@@ -2589,19 +2617,15 @@ public final class BuilderScreen extends Screen {
         return index < this.controller.getFluidEntries().size() ? index : -1;
     }
 
-    private boolean isWorldArea(double mouseY) {
-        return mouseY > TOP_H && mouseY < getBottomY();
+    private boolean isWorldArea(double mouseX, double mouseY) {
+        return mouseY > TOP_H && !isInsideBottomPanel(mouseX, mouseY);
     }
 
     private boolean isInsideCategoryList(double mouseX, double mouseY) {
-        int bottomH = getBottomHeight();
-        int sortX = 8;
-        int bottomY = getBottomY();
-        int categoryX = sortX + 58;
-        int categoryY = bottomY + 4;
-        int listY = categoryY + 13;
-        int listH = bottomH - 15;
-        return inside(mouseX, mouseY, categoryX + 2, listY, CATEGORY_W - 4, listH);
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        int listY = layout.categoryY() + 13;
+        int listH = layout.categoryH() - 15;
+        return inside(mouseX, mouseY, layout.categoryX() + 2, listY, CATEGORY_W - 4, listH);
     }
 
     private void shiftCategoryScroll(int delta) {
@@ -2611,7 +2635,7 @@ public final class BuilderScreen extends Screen {
     }
 
     private int getBottomY() {
-        return this.height - getBottomHeight();
+        return resolveBottomPanelLayout().panelY();
     }
 
     private int getFloatingPanelAvailableHeight(int panelY) {
@@ -2619,16 +2643,200 @@ public final class BuilderScreen extends Screen {
     }
 
     private int getBottomHeight() {
-        int dynamicMax = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
-        int minAllowed = Math.min(dynamicMax, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
-        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight, minAllowed, dynamicMax);
-        return this.bottomPanelHeight;
+        return resolveBottomPanelLayout().panelH();
     }
 
-    private void adjustBottomPanelHeight(int delta) {
-        int dynamicMax = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
-        int minAllowed = Math.min(dynamicMax, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
-        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight + delta, minAllowed, dynamicMax);
+    private void adjustBottomPanelSize(int direction) {
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        this.bottomPanelWidth = layout.panelW() + (direction * BOTTOM_PANEL_RESIZE_STEP_W);
+        this.bottomPanelHeight = layout.panelH() + (direction * SLOT);
+        BottomPanelLayout adjusted = resolveBottomPanelLayout();
+        persistBottomPanelLayout(adjusted);
+    }
+
+    private boolean isInsideBottomPanel(double mouseX, double mouseY) {
+        return resolveBottomPanelLayout().contains(mouseX, mouseY);
+    }
+
+    private void restoreBottomPanelLayout() {
+        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
+        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
+        int maxH = Math.max(minH, dynamicMaxH);
+        int maxW = Math.max(360, this.width - 16);
+        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
+
+        this.bottomPanelWidth = minW + (int) Math.round((maxW - minW) * this.controller.getStoragePanelWidthNormalized());
+        this.bottomPanelHeight = minH + (int) Math.round((maxH - minH) * this.controller.getStoragePanelHeightNormalized());
+
+        this.bottomPanelWidth = Mth.clamp(this.bottomPanelWidth, minW, maxW);
+        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight, minH, maxH);
+
+        int minX = 8;
+        int maxX = Math.max(minX, this.width - this.bottomPanelWidth - 8);
+        int minY = TOP_H + 6;
+        int maxY = Math.max(minY, this.height - this.bottomPanelHeight - 6);
+
+        this.bottomPanelX = minX + (int) Math.round((maxX - minX) * this.controller.getStoragePanelXNormalized());
+        this.bottomPanelY = minY + (int) Math.round((maxY - minY) * this.controller.getStoragePanelYNormalized());
+        this.bottomPanelX = Mth.clamp(this.bottomPanelX, minX, maxX);
+        this.bottomPanelY = Mth.clamp(this.bottomPanelY, minY, maxY);
+    }
+
+    private void persistBottomPanelLayout(BottomPanelLayout layout) {
+        if (layout == null) {
+            layout = resolveBottomPanelLayout();
+        }
+
+        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
+        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
+        int maxH = Math.max(minH, dynamicMaxH);
+        int maxW = Math.max(360, this.width - 16);
+        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
+        int minX = 8;
+        int maxX = Math.max(minX, this.width - layout.panelW() - 8);
+        int minY = TOP_H + 6;
+        int maxY = Math.max(minY, this.height - layout.panelH() - 6);
+
+        this.controller.updateStoragePanelLayout(
+                normalizeBetween(layout.panelX(), minX, maxX),
+                normalizeBetween(layout.panelY(), minY, maxY),
+                normalizeBetween(layout.panelW(), minW, maxW),
+                normalizeBetween(layout.panelH(), minH, maxH));
+    }
+
+    private double normalizeBetween(int value, int min, int max) {
+        if (max <= min) {
+            return 0.0D;
+        }
+        return Mth.clamp((value - (double) min) / (double) (max - min), 0.0D, 1.0D);
+    }
+
+    private void beginBottomPanelDrag(double mouseX, double mouseY) {
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        this.bottomPanelDragging = true;
+        this.bottomPanelDragOffsetX = mouseX - layout.panelX();
+        this.bottomPanelDragOffsetY = mouseY - layout.panelY();
+    }
+
+    private void updateBottomPanelDrag(double mouseX, double mouseY) {
+        if (!this.bottomPanelDragging) {
+            return;
+        }
+        BottomPanelLayout layout = resolveBottomPanelLayout();
+        int minX = 8;
+        int maxX = Math.max(minX, this.width - layout.panelW() - 8);
+        int minY = TOP_H + 6;
+        int maxY = Math.max(minY, this.height - layout.panelH() - 6);
+        this.bottomPanelX = Mth.clamp((int) Math.round(mouseX - this.bottomPanelDragOffsetX), minX, maxX);
+        this.bottomPanelY = Mth.clamp((int) Math.round(mouseY - this.bottomPanelDragOffsetY), minY, maxY);
+        persistBottomPanelLayout(resolveBottomPanelLayout());
+    }
+
+    private BottomPanelLayout resolveBottomPanelLayout() {
+        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
+        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
+        int maxH = Math.max(minH, dynamicMaxH);
+        int maxW = Math.max(360, this.width - 16);
+        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
+
+        this.bottomPanelWidth = Mth.clamp(this.bottomPanelWidth, minW, maxW);
+        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight, minH, maxH);
+
+        int minX = 8;
+        int maxX = Math.max(minX, this.width - this.bottomPanelWidth - 8);
+        int minY = TOP_H + 6;
+        int maxY = Math.max(minY, this.height - this.bottomPanelHeight - 6);
+
+        this.bottomPanelX = Mth.clamp(this.bottomPanelX, minX, maxX);
+        this.bottomPanelY = Mth.clamp(this.bottomPanelY, minY, maxY);
+
+        int contentX = this.bottomPanelX + BOTTOM_PANEL_PADDING;
+        int contentY = this.bottomPanelY + BOTTOM_PANEL_HEADER_H + 4;
+        int sortX = contentX;
+        int sortY = contentY + 2;
+        int categoryX = sortX + 58;
+        int categoryY = contentY;
+        int categoryH = Math.max(24, this.bottomPanelY + this.bottomPanelHeight - BOTTOM_PANEL_PADDING - categoryY);
+        int storageX = categoryX + CATEGORY_W + 10;
+        int storageY = contentY;
+        int storageW = Math.max(120, this.bottomPanelX + this.bottomPanelWidth - BOTTOM_PANEL_PADDING - storageX);
+        int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
+        int mainStorageW = Math.max(120, craftPanelX - storageX - CRAFT_PANEL_GAP);
+        int searchW = Math.max(80, storageW - 102);
+        int pagerX = storageX + searchW + 4;
+        int toolY = storageY + 17;
+        int gridY = toolY + TOOL_AREA_H + 4;
+        int gridH = Math.max(SLOT, this.bottomPanelY + this.bottomPanelHeight - BOTTOM_PANEL_PADDING - gridY);
+        int storageRows = Math.max(1, gridH / SLOT);
+        int craftPanelY = gridY;
+        int craftPanelH = computeCraftPanelHeight(storageRows);
+        int fillButtonX = this.bottomPanelX + this.bottomPanelWidth - BOTTOM_PANEL_PADDING - BOTTOM_PANEL_FILL_BUTTON_W;
+        int dragHandleX = this.bottomPanelX + 96;
+        int dragHandleW = Math.max(BOTTOM_PANEL_DRAG_HANDLE_MIN_W, fillButtonX - dragHandleX - 6);
+
+        return new BottomPanelLayout(
+                this.bottomPanelX,
+                this.bottomPanelY,
+                this.bottomPanelWidth,
+                this.bottomPanelHeight,
+                sortX,
+                sortY,
+                categoryX,
+                categoryY,
+                categoryH,
+                storageX,
+                storageY,
+                storageW,
+                craftPanelX,
+                mainStorageW,
+                searchW,
+                pagerX,
+                toolY,
+                gridY,
+                gridH,
+                storageRows,
+                craftPanelY,
+                craftPanelH,
+                fillButtonX,
+                dragHandleX,
+                dragHandleW);
+    }
+
+    private record BottomPanelLayout(
+            int panelX,
+            int panelY,
+            int panelW,
+            int panelH,
+            int sortX,
+            int sortY,
+            int categoryX,
+            int categoryY,
+            int categoryH,
+            int storageX,
+            int storageY,
+            int storageW,
+            int craftPanelX,
+            int mainStorageW,
+            int searchW,
+            int pagerX,
+            int toolY,
+            int gridY,
+            int gridH,
+            int storageRows,
+            int craftPanelY,
+            int craftPanelH,
+            int fillButtonX,
+            int dragHandleX,
+            int dragHandleW) {
+        private boolean contains(double mouseX, double mouseY) {
+            return mouseX >= this.panelX && mouseX <= this.panelX + this.panelW
+                    && mouseY >= this.panelY && mouseY <= this.panelY + this.panelH;
+        }
+
+        private boolean isInsideHeader(double mouseX, double mouseY) {
+            return mouseX >= this.panelX && mouseX <= this.panelX + this.panelW
+                    && mouseY >= this.panelY && mouseY <= this.panelY + BOTTOM_PANEL_HEADER_H;
+        }
     }
 
     private int minimumBottomHeightForGridRows(int rows) {
@@ -3766,7 +3974,7 @@ public final class BuilderScreen extends Screen {
                 && !this.shapeWheelOpen
                 && !this.interactionWheelOpen
                 && !this.guideOpen
-                && isWorldArea(mouseY);
+                && isWorldArea(currentMouseX(), mouseY);
     }
 
     private boolean isAltDown() {

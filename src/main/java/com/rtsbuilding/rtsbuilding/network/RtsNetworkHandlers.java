@@ -267,6 +267,14 @@ public final class RtsNetworkHandlers {
         });
     }
 
+    public static void handleFillInventory(C2SRtsFillInventoryPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageManager.fillPlayerInventoryFromLinked(serverPlayer);
+            }
+        });
+    }
+
     public static void handleLinkedPickup(C2SRtsLinkedPickupPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
