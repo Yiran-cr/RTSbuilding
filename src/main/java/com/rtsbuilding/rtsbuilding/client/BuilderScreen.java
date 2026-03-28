@@ -44,12 +44,8 @@ public final class BuilderScreen extends Screen {
     private static final int DEFAULT_BOTTOM_H = 110;
     private static final int MIN_BOTTOM_H = 72;
     private static final int MAX_BOTTOM_H = 320;
-    private static final int BOTTOM_PANEL_MIN_W = 560;
     private static final int BOTTOM_PANEL_PADDING = 8;
     private static final int BOTTOM_PANEL_HEADER_H = 18;
-    private static final int BOTTOM_PANEL_FILL_BUTTON_W = 64;
-    private static final int BOTTOM_PANEL_DRAG_HANDLE_MIN_W = 84;
-    private static final int BOTTOM_PANEL_RESIZE_STEP_W = 48;
     private static final int MIN_STORAGE_GRID_ROWS = 2;
     private static final int GRID_BOTTOM_PADDING = 4;
     private static final int SLOT = 22;
@@ -58,7 +54,6 @@ public final class BuilderScreen extends Screen {
     private static final int TOOL_AREA_H = HOTBAR_SLOT;
     private static final int SEARCH_CLEAR_SIZE = 12;
     private static final int SORT_BUTTON_SIZE = 16;
-    private static final int CRAFT_BUTTON_H = 14;
     private static final int CRAFT_PANEL_W = 106;
     private static final int CRAFT_PANEL_GAP = 6;
     private static final int CRAFT_PANEL_COLS = 4;
@@ -67,6 +62,9 @@ public final class BuilderScreen extends Screen {
     private static final int CRAFT_PANEL_SEARCH_H = 12;
     private static final int CRAFT_PANEL_APPLY_W = 16;
     private static final int CRAFT_PANEL_TOGGLE_W = 30;
+    private static final int CRAFT_DOCK_C_SIZE = 18;
+    private static final int CRAFT_DOCK_SLOT_SIZE = 10;
+    private static final int CRAFT_DOCK_GAP = 2;
     private static final int STORAGE_RECENT_GAP = 6;
     private static final int CATEGORY_W = 124;
     private static final int CATEGORY_ROW_H = 11;
@@ -99,13 +97,6 @@ public final class BuilderScreen extends Screen {
     private static final int FUNNEL_BUFFER_ROW_H = 22;
     private static final int FUNNEL_BUFFER_TOGGLE_W = 60;
     private static final int FUNNEL_BUFFER_TOGGLE_H = 16;
-    private static final int LEFT_SIDEBAR_TAB_W = 14;
-    private static final int LEFT_SIDEBAR_TAB_H = 36;
-    private static final int LEFT_SIDEBAR_PANEL_W = 132;
-    private static final int LEFT_SIDEBAR_PANEL_H = 78;
-    private static final int LEFT_SIDEBAR_BUTTON_W = 112;
-    private static final int LEFT_SIDEBAR_BUTTON_H = 16;
-    private static final int LEFT_SIDEBAR_Y = TOP_H + 8;
     private static final ItemStack FUNNEL_CURSOR_STACK = new ItemStack(Items.HOPPER);
     private static final String CATEGORY_ALL = "all";
     private static final String CATEGORY_MOD_PREFIX = "mod|";
@@ -128,12 +119,6 @@ public final class BuilderScreen extends Screen {
     private int categoryScroll = 0;
     private final Set<String> expandedCategoryMods = new HashSet<>();
     private int bottomPanelHeight = DEFAULT_BOTTOM_H;
-    private int bottomPanelWidth = BOTTOM_PANEL_MIN_W;
-    private int bottomPanelX = 8;
-    private int bottomPanelY = 0;
-    private boolean bottomPanelDragging = false;
-    private double bottomPanelDragOffsetX = 0.0D;
-    private double bottomPanelDragOffsetY = 0.0D;
     private boolean rightPressActive = false;
     private boolean rightDragRotated = false;
     private double rightDragDistance = 0.0D;
@@ -163,7 +148,6 @@ public final class BuilderScreen extends Screen {
     private int shapeRotateDegrees = 0;
     private boolean shapeWheelOpenedByAlt = false;
     private boolean altShapeMenuHeld = false;
-    private boolean leftSidebarExpanded = false;
     private int pendingGuiBindSlot = -1;
     private final List<ShapeHistoryBatch> shapeUndoStack = new ArrayList<>();
     private final List<ShapeHistoryBatch> shapeRedoStack = new ArrayList<>();
@@ -193,7 +177,6 @@ public final class BuilderScreen extends Screen {
         }
         this.craftSearchBox.setValue(this.craftSearchDraft);
         this.craftSearchBox.setResponder(value -> this.craftSearchDraft = value == null ? "" : value);
-        restoreBottomPanelLayout();
         this.controller.requestCraftables();
     }
 
@@ -215,7 +198,6 @@ public final class BuilderScreen extends Screen {
         this.pendingGuiBindSlot = -1;
         this.altShapeMenuHeld = false;
         this.funnelHotkeyHeld = false;
-        this.bottomPanelDragging = false;
         this.controller.abortMining(getSelectedToolSlot());
         this.leftMiningActive = false;
         if (this.controller.isFunnelEnabled()) {
@@ -309,10 +291,6 @@ public final class BuilderScreen extends Screen {
                 }
                 return true;
             }
-            return true;
-        }
-
-        if (handleLeftSidebarClick(mouseX, mouseY, button)) {
             return true;
         }
 
@@ -421,11 +399,6 @@ public final class BuilderScreen extends Screen {
         }
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (this.bottomPanelDragging) {
-                this.bottomPanelDragging = false;
-                persistBottomPanelLayout(resolveBottomPanelLayout());
-                return true;
-            }
             if (this.leftMiningActive) {
                 this.leftMiningActive = false;
                 this.controller.abortMining(getSelectedToolSlot());
@@ -568,11 +541,6 @@ public final class BuilderScreen extends Screen {
         }
 
         if (this.guideOpen) {
-            return true;
-        }
-
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && this.bottomPanelDragging) {
-            updateBottomPanelDrag(mouseX, mouseY);
             return true;
         }
 
@@ -891,7 +859,6 @@ public final class BuilderScreen extends Screen {
 
         renderTopBar(guiGraphics);
         renderBottomPanel(guiGraphics, mouseX, mouseY, partialTick);
-        renderLeftSidebar(guiGraphics, mouseX, mouseY);
         renderShapeContextPanel(guiGraphics, mouseX, mouseY);
         renderFunnelBufferPanel(guiGraphics, mouseX, mouseY);
 
@@ -911,7 +878,7 @@ public final class BuilderScreen extends Screen {
                 }
                 guiGraphics.drawString(
                         this.font,
-                        describeRecentEntry(entry) + " " + formatRecentAmount(entry),
+                        formatRecentAmount(entry),
                         mouseX + 10,
                         mouseY + 18,
                         entry.fluid() ? 0xFFBEE6FF : 0xFFE6F1B8);
@@ -957,10 +924,10 @@ public final class BuilderScreen extends Screen {
                 guiGraphics.drawString(
                         this.font,
                         this.pendingGuiBindSlot == this.hoveredGuiBindingSlot
-                                ? "Left click: cancel bind"
+                                ? "Left: cancel  Click machine: bind"
                                 : (this.controller.hasGuiBinding(this.hoveredGuiBindingSlot)
                                         ? "Left: open  Right: rebind  Shift+Right: clear"
-                                        : "Right: bind next clicked GUI block"),
+                                        : "Left/Right: bind next clicked GUI block"),
                         mouseX + 10,
                         mouseY + 18,
                         0xFFCFE3F7);
@@ -970,6 +937,8 @@ public final class BuilderScreen extends Screen {
             updateNativeCursorVisibility(funnelCursor);
             if (funnelCursor) {
                 guiGraphics.renderItem(FUNNEL_CURSOR_STACK, mouseX + 8, mouseY + 8);
+            } else if (this.pendingGuiBindSlot >= 0) {
+                drawGuiBindCursor(guiGraphics, mouseX, mouseY);
             } else {
                 ItemStack cursorPreview = resolveCursorPreview();
                 if (!cursorPreview.isEmpty() && !isSearchFocused() && !this.guideOpen && !this.interactionWheelOpen
@@ -1045,103 +1014,78 @@ public final class BuilderScreen extends Screen {
                 this.controller.isStorageLinked() ? 0xB8FFB8 : 0xFFD8AE);
     }
 
-    private void renderLeftSidebar(GuiGraphics g, int mouseX, int mouseY) {
-        int panelX = 0;
-        int panelY = LEFT_SIDEBAR_Y;
-        int tabX = this.leftSidebarExpanded ? LEFT_SIDEBAR_PANEL_W : 0;
-        int tabY = panelY + 14;
+    private void drawCraftDock(GuiGraphics g, int mouseX, int mouseY, int x, int y) {
+        CraftDockLayout dock = resolveCraftDockLayout(x, y);
+        boolean craftHovered = inside(mouseX, mouseY, dock.cX(), dock.cY(), CRAFT_DOCK_C_SIZE, CRAFT_DOCK_C_SIZE);
+        int craftFill = craftHovered ? 0xCC385465 : 0xAA24303A;
+        drawPanelFrame(g, dock.cX(), dock.cY(), CRAFT_DOCK_C_SIZE, CRAFT_DOCK_C_SIZE, craftFill, 0xFF6E8799, 0xFF111821);
+        g.drawCenteredString(this.font, "C", dock.cX() + CRAFT_DOCK_C_SIZE / 2, dock.cY() + 5, 0xFFFFFF);
 
-        drawPanelFrame(g, tabX, tabY, LEFT_SIDEBAR_TAB_W, LEFT_SIDEBAR_TAB_H, 0xCC1A212B, 0xFF66798D, 0xFF0D1218);
-        g.drawCenteredString(this.font, this.leftSidebarExpanded ? "<" : ">", tabX + LEFT_SIDEBAR_TAB_W / 2, tabY + 6, 0xFFFFFF);
-        g.drawCenteredString(this.font, "G", tabX + LEFT_SIDEBAR_TAB_W / 2, tabY + 18, 0xCFE3F7);
-
-        if (!this.leftSidebarExpanded) {
-            return;
-        }
-
-        drawPanelFrame(g, panelX, panelY, LEFT_SIDEBAR_PANEL_W, LEFT_SIDEBAR_PANEL_H, 0xCC121920, 0xFF66798D, 0xFF0D1218);
-        g.drawString(this.font, "GUI Bind", panelX + 8, panelY + 6, 0xEAF5FF);
-
-        for (int i = 0; i < this.controller.getGuiBindingCount(); i++) {
-            int buttonX = panelX + 10;
-            int buttonY = panelY + 20 + i * (LEFT_SIDEBAR_BUTTON_H + 4);
-            boolean hovered = inside(mouseX, mouseY, buttonX, buttonY, LEFT_SIDEBAR_BUTTON_W, LEFT_SIDEBAR_BUTTON_H);
-            boolean pending = this.pendingGuiBindSlot == i;
-            boolean bound = this.controller.hasGuiBinding(i);
+        for (int slot = 0; slot < this.controller.getGuiBindingCount(); slot++) {
+            int slotX = dock.slotX(slot);
+            int slotY = dock.slotY(slot);
+            boolean hovered = inside(mouseX, mouseY, slotX, slotY, CRAFT_DOCK_SLOT_SIZE, CRAFT_DOCK_SLOT_SIZE);
+            boolean pending = this.pendingGuiBindSlot == slot;
+            boolean bound = this.controller.hasGuiBinding(slot);
             int fill = pending ? 0xCC2D6B47 : (bound ? 0xAA23384A : 0xAA202731);
             if (hovered) {
                 fill = pending ? 0xDD377F53 : (bound ? 0xBB2C4760 : 0xBB29323D);
-                this.hoveredGuiBindingSlot = i;
+                this.hoveredGuiBindingSlot = slot;
             }
-            drawPanelFrame(g, buttonX, buttonY, LEFT_SIDEBAR_BUTTON_W, LEFT_SIDEBAR_BUTTON_H, fill, 0xFF698097, 0xFF0F151C);
-            String label;
-            if (pending) {
-                label = "Slot " + (i + 1) + ": Click GUI";
-            } else if (bound) {
-                label = (i + 1) + ". " + this.controller.getGuiBindingLabel(i);
-            } else {
-                label = (i + 1) + ". [Empty]";
-            }
-            g.drawString(this.font, trimToWidth(label, LEFT_SIDEBAR_BUTTON_W - 8), buttonX + 4, buttonY + 4, 0xFFFFFF);
+            drawPanelFrame(g, slotX, slotY, CRAFT_DOCK_SLOT_SIZE, CRAFT_DOCK_SLOT_SIZE, fill, 0xFF698097, 0xFF0F151C);
+            String text = (!bound || pending) ? "+" : Integer.toString(slot + 1);
+            g.drawCenteredString(this.font, text, slotX + CRAFT_DOCK_SLOT_SIZE / 2, slotY + 2, 0xFFFFFF);
         }
     }
 
-    private boolean handleLeftSidebarClick(double mouseX, double mouseY, int button) {
-        int panelX = 0;
-        int panelY = LEFT_SIDEBAR_Y;
-        int tabX = this.leftSidebarExpanded ? LEFT_SIDEBAR_PANEL_W : 0;
-        int tabY = panelY + 14;
+    private void drawGuiBindCursor(GuiGraphics g, int mouseX, int mouseY) {
+        int x = mouseX + 8;
+        int y = mouseY + 8;
+        drawPanelFrame(g, x, y, CRAFT_DOCK_SLOT_SIZE, CRAFT_DOCK_SLOT_SIZE, 0xCC2D6B47, 0xFF78B28C, 0xFF0F151C);
+        g.drawCenteredString(this.font, "+", x + CRAFT_DOCK_SLOT_SIZE / 2, y + 1, 0xFFFFFF);
+    }
 
-        if (inside(mouseX, mouseY, tabX, tabY, LEFT_SIDEBAR_TAB_W, LEFT_SIDEBAR_TAB_H)) {
-            this.leftSidebarExpanded = !this.leftSidebarExpanded;
-            if (!this.leftSidebarExpanded) {
-                this.pendingGuiBindSlot = -1;
+    private boolean handleCraftDockClick(double mouseX, double mouseY, int button, int x, int y) {
+        CraftDockLayout dock = resolveCraftDockLayout(x, y);
+        if (inside(mouseX, mouseY, dock.cX(), dock.cY(), CRAFT_DOCK_C_SIZE, CRAFT_DOCK_C_SIZE)) {
+            this.controller.openCraftTerminal();
+            return true;
+        }
+
+        for (int slot = 0; slot < this.controller.getGuiBindingCount(); slot++) {
+            int slotX = dock.slotX(slot);
+            int slotY = dock.slotY(slot);
+            if (!inside(mouseX, mouseY, slotX, slotY, CRAFT_DOCK_SLOT_SIZE, CRAFT_DOCK_SLOT_SIZE)) {
+                continue;
             }
-            return true;
-        }
-        if (!this.leftSidebarExpanded || !inside(mouseX, mouseY, panelX, panelY, LEFT_SIDEBAR_PANEL_W, LEFT_SIDEBAR_PANEL_H)) {
-            return false;
-        }
 
-        int slot = resolveLeftSidebarSlotIndex(mouseX, mouseY);
-        if (slot < 0) {
-            return true;
-        }
-
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (this.controller.hasGuiBinding(slot)) {
-                this.pendingGuiBindSlot = -1;
-                this.controller.openGuiBinding(slot);
-            } else if (this.pendingGuiBindSlot == slot) {
-                this.pendingGuiBindSlot = -1;
-            }
-            return true;
-        }
-
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (hasShiftDown()) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 if (this.pendingGuiBindSlot == slot) {
                     this.pendingGuiBindSlot = -1;
+                } else if (this.controller.hasGuiBinding(slot)) {
+                    this.pendingGuiBindSlot = -1;
+                    this.controller.openGuiBinding(slot);
+                } else {
+                    this.pendingGuiBindSlot = slot;
                 }
-                this.controller.clearGuiBinding(slot);
                 return true;
             }
-            this.pendingGuiBindSlot = this.pendingGuiBindSlot == slot ? -1 : slot;
+
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                if (hasShiftDown()) {
+                    if (this.pendingGuiBindSlot == slot) {
+                        this.pendingGuiBindSlot = -1;
+                    }
+                    this.controller.clearGuiBinding(slot);
+                    return true;
+                }
+                this.pendingGuiBindSlot = this.pendingGuiBindSlot == slot ? -1 : slot;
+                return true;
+            }
+
             return true;
         }
-
-        return true;
-    }
-
-    private int resolveLeftSidebarSlotIndex(double mouseX, double mouseY) {
-        for (int i = 0; i < this.controller.getGuiBindingCount(); i++) {
-            int buttonX = 10;
-            int buttonY = LEFT_SIDEBAR_Y + 20 + i * (LEFT_SIDEBAR_BUTTON_H + 4);
-            if (inside(mouseX, mouseY, buttonX, buttonY, LEFT_SIDEBAR_BUTTON_W, LEFT_SIDEBAR_BUTTON_H)) {
-                return i;
-            }
-        }
-        return -1;
+        return false;
     }
 
     private void renderFunnelBufferPanel(GuiGraphics g, int mouseX, int mouseY) {
@@ -1354,21 +1298,12 @@ public final class BuilderScreen extends Screen {
         g.fill(layout.panelX() + 1, layout.panelY() + 1, layout.panelX() + layout.panelW() - 1, layout.panelY() + BOTTOM_PANEL_HEADER_H, 0xCC1C242F);
         g.drawString(this.font, "RTS Storage", layout.panelX() + 8, layout.panelY() + 5, 0xF2F6FB);
 
-        int dragY = layout.panelY() + 2;
-        drawPanelFrame(g, layout.dragHandleX(), dragY, layout.dragHandleW(), 14, 0xAA29313B, 0xFF70859A, 0xFF10141A);
-        g.drawCenteredString(this.font, "drag", layout.dragHandleX() + layout.dragHandleW() / 2, layout.panelY() + 5, 0xCFE0F1);
-
-        int fillButtonY = layout.panelY() + 2;
-        int fillFill = this.controller.isStorageLinked() ? 0xAA315844 : 0xAA2A2D36;
-        drawPanelFrame(g, layout.fillButtonX(), fillButtonY, BOTTOM_PANEL_FILL_BUTTON_W, 14, fillFill, 0xFF6C8296, 0xFF10141A);
-        g.drawCenteredString(this.font, "Fill Inv", layout.fillButtonX() + BOTTOM_PANEL_FILL_BUTTON_W / 2, layout.panelY() + 5, 0xFFFFFF);
-
         drawSortButton(g, sortX, sortY, "S");
         drawSortButton(g, sortX, sortY + SORT_BUTTON_SIZE + 4, this.controller.isStorageSortAscending() ? "A" : "D");
         g.drawString(this.font, sortLabel(this.controller.getStorageSort()), sortX + SORT_BUTTON_SIZE + 4, sortY + 6, 0xFFFFFF);
         drawSortButton(g, sortX + SORT_BUTTON_SIZE + 26, sortY, "+");
         drawSortButton(g, sortX + SORT_BUTTON_SIZE + 26, sortY + SORT_BUTTON_SIZE + 4, "-");
-        drawCraftButton(g, sortX, sortY + (SORT_BUTTON_SIZE + 4) * 2 + 2, SORT_BUTTON_SIZE * 2 + 26, CRAFT_BUTTON_H);
+        drawCraftDock(g, mouseX, mouseY, sortX, sortY + (SORT_BUTTON_SIZE + 4) * 2);
 
         int categoryX = layout.categoryX();
         int categoryY = layout.categoryY();
@@ -1416,7 +1351,7 @@ public final class BuilderScreen extends Screen {
         int recentGridW = Math.max(SLOT, itemGridW - storageGridW - STORAGE_RECENT_GAP);
         drawStorageGrid(g, mouseX, mouseY, itemGridX, gridY, storageGridW, gridH);
         drawRecentGrid(g, mouseX, mouseY, recentGridX, gridY, recentGridW, gridH);
-        renderCraftablesPanel(g, mouseX, mouseY, craftPanelX, craftPanelY, CRAFT_PANEL_W, craftPanelH, partialTick, storageRows);
+        renderCraftablesPanel(g, mouseX, mouseY, craftPanelX, craftPanelY, CRAFT_PANEL_W, craftPanelH, partialTick);
     }
 
     private void renderToolArea(GuiGraphics g, int mouseX, int mouseY, int storageX, int rowY, int storageW) {
@@ -1513,15 +1448,6 @@ public final class BuilderScreen extends Screen {
     private void drawSortButton(GuiGraphics g, int x, int y, String label) {
         g.fill(x, y, x + SORT_BUTTON_SIZE, y + SORT_BUTTON_SIZE, 0xAA29323D);
         g.drawCenteredString(this.font, label, x + SORT_BUTTON_SIZE / 2, y + 4, 0xFFFFFF);
-    }
-
-    private void drawCraftButton(GuiGraphics g, int x, int y, int w, int h) {
-        g.fill(x, y, x + w, y + h, 0xAA2A3340);
-        g.hLine(x, x + w, y, 0xFF5F748A);
-        g.hLine(x, x + w, y + h, 0xFF11151B);
-        g.vLine(x, y, y + h, 0xFF5F748A);
-        g.vLine(x + w, y, y + h, 0xFF11151B);
-        g.drawCenteredString(this.font, "CRAFT", x + w / 2, y + 3, 0xFFFFFF);
     }
 
     private void drawCategoryPanel(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height) {
@@ -1685,7 +1611,6 @@ public final class BuilderScreen extends Screen {
                     box,
                     formatRecentAmount(entry),
                     entry.fluid() ? 0xFFBEE6FF : 0xFFE8F4C0);
-            drawRecentKindBadge(g, cx, cy, box, entry);
 
             if (mouseX >= cx && mouseX <= cx + box && mouseY >= cy && mouseY <= cy + box) {
                 g.fill(cx + 1, cy + 1, cx + box - 1, cy + box - 1, 0x22FFFFFF);
@@ -1694,18 +1619,7 @@ public final class BuilderScreen extends Screen {
         }
     }
 
-    private void drawRecentKindBadge(GuiGraphics g, int slotX, int slotY, int box, ClientRtsController.RecentEntry entry) {
-        String badge = switch (entry.kind()) {
-            case S2CRtsStoragePagePayload.RECENT_ITEM_PLACED, S2CRtsStoragePagePayload.RECENT_FLUID_PLACED -> "P";
-            case S2CRtsStoragePagePayload.RECENT_ITEM_USED, S2CRtsStoragePagePayload.RECENT_FLUID_USED -> "U";
-            case S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, S2CRtsStoragePagePayload.RECENT_FLUID_CRAFTED -> "C";
-            default -> "?";
-        };
-        g.fill(slotX + box - 8, slotY + 1, slotX + box - 1, slotY + 8, 0xCC202A35);
-        g.drawCenteredString(this.font, badge, slotX + box - 4, slotY + 1, 0xFFEAF2FF);
-    }
-
-    private void renderCraftablesPanel(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height, float partialTick, int visibleRows) {
+    private void renderCraftablesPanel(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height, float partialTick) {
         syncCraftSearchValueFromController();
 
         drawPanelFrame(g, x, y, width, height, 0xAA141922, 0xFF637993, 0xFF0D1218);
@@ -1745,7 +1659,7 @@ public final class BuilderScreen extends Screen {
                 0xFFFFFF);
 
         int gridY = searchY + CRAFT_PANEL_SEARCH_H + 6;
-        int clampedRows = Math.max(1, visibleRows);
+        int clampedRows = Math.max(1, (height - (gridY - y) - 6) / CRAFT_PANEL_PITCH);
         List<ClientRtsController.CraftableEntry> entries = this.controller.getCraftableEntries();
         int totalRows = Math.max(1, (int) Math.ceil(entries.size() / (double) CRAFT_PANEL_COLS));
         int maxScroll = Math.max(0, totalRows - clampedRows);
@@ -1994,14 +1908,6 @@ public final class BuilderScreen extends Screen {
             return false;
         }
 
-        if (inside(mouseX, mouseY, layout.fillButtonX(), layout.panelY() + 2, BOTTOM_PANEL_FILL_BUTTON_W, 14)) {
-            this.controller.fillInventoryFromLinked();
-            return true;
-        }
-        if (inside(mouseX, mouseY, layout.dragHandleX(), layout.panelY() + 2, layout.dragHandleW(), 14)) {
-            beginBottomPanelDrag(mouseX, mouseY);
-            return true;
-        }
         if (layout.isInsideHeader(mouseX, mouseY)) {
             return true;
         }
@@ -2051,10 +1957,7 @@ public final class BuilderScreen extends Screen {
             adjustBottomPanelSize(-1);
             return true;
         }
-        int craftBtnY = sortY + (SORT_BUTTON_SIZE + 4) * 2 + 2;
-        int craftBtnW = SORT_BUTTON_SIZE * 2 + 26;
-        if (inside(mouseX, mouseY, sortX, craftBtnY, craftBtnW, CRAFT_BUTTON_H)) {
-            this.controller.openCraftTerminal();
+        if (handleCraftDockClick(mouseX, mouseY, GLFW.GLFW_MOUSE_BUTTON_LEFT, sortX, sortY + (SORT_BUTTON_SIZE + 4) * 2)) {
             return true;
         }
 
@@ -2133,12 +2036,18 @@ public final class BuilderScreen extends Screen {
         }
 
         int storageX = layout.storageX();
+        int sortX = layout.sortX();
+        int sortY = layout.sortY();
         int mainStorageW = layout.mainStorageW();
         int toolY = layout.toolY();
         int gridY = layout.gridY();
         int gridH = layout.gridH();
         int craftPanelY = layout.craftPanelY();
         int craftPanelH = layout.craftPanelH();
+
+        if (handleCraftDockClick(mouseX, mouseY, GLFW.GLFW_MOUSE_BUTTON_RIGHT, sortX, sortY + (SORT_BUTTON_SIZE + 4) * 2)) {
+            return true;
+        }
 
         if (handleToolRowRightClick(mouseX, mouseY, storageX, toolY, mainStorageW)) {
             return true;
@@ -2647,138 +2556,52 @@ public final class BuilderScreen extends Screen {
     }
 
     private void adjustBottomPanelSize(int direction) {
-        BottomPanelLayout layout = resolveBottomPanelLayout();
-        this.bottomPanelWidth = layout.panelW() + (direction * BOTTOM_PANEL_RESIZE_STEP_W);
-        this.bottomPanelHeight = layout.panelH() + (direction * SLOT);
-        BottomPanelLayout adjusted = resolveBottomPanelLayout();
-        persistBottomPanelLayout(adjusted);
+        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
+        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
+        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight + (direction * SLOT), minH, dynamicMaxH);
     }
 
     private boolean isInsideBottomPanel(double mouseX, double mouseY) {
         return resolveBottomPanelLayout().contains(mouseX, mouseY);
     }
 
-    private void restoreBottomPanelLayout() {
-        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
-        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
-        int maxH = Math.max(minH, dynamicMaxH);
-        int maxW = Math.max(360, this.width - 16);
-        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
-
-        this.bottomPanelWidth = minW + (int) Math.round((maxW - minW) * this.controller.getStoragePanelWidthNormalized());
-        this.bottomPanelHeight = minH + (int) Math.round((maxH - minH) * this.controller.getStoragePanelHeightNormalized());
-
-        this.bottomPanelWidth = Mth.clamp(this.bottomPanelWidth, minW, maxW);
-        this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight, minH, maxH);
-
-        int minX = 8;
-        int maxX = Math.max(minX, this.width - this.bottomPanelWidth - 8);
-        int minY = TOP_H + 6;
-        int maxY = Math.max(minY, this.height - this.bottomPanelHeight - 6);
-
-        this.bottomPanelX = minX + (int) Math.round((maxX - minX) * this.controller.getStoragePanelXNormalized());
-        this.bottomPanelY = minY + (int) Math.round((maxY - minY) * this.controller.getStoragePanelYNormalized());
-        this.bottomPanelX = Mth.clamp(this.bottomPanelX, minX, maxX);
-        this.bottomPanelY = Mth.clamp(this.bottomPanelY, minY, maxY);
-    }
-
-    private void persistBottomPanelLayout(BottomPanelLayout layout) {
-        if (layout == null) {
-            layout = resolveBottomPanelLayout();
-        }
-
-        int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
-        int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
-        int maxH = Math.max(minH, dynamicMaxH);
-        int maxW = Math.max(360, this.width - 16);
-        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
-        int minX = 8;
-        int maxX = Math.max(minX, this.width - layout.panelW() - 8);
-        int minY = TOP_H + 6;
-        int maxY = Math.max(minY, this.height - layout.panelH() - 6);
-
-        this.controller.updateStoragePanelLayout(
-                normalizeBetween(layout.panelX(), minX, maxX),
-                normalizeBetween(layout.panelY(), minY, maxY),
-                normalizeBetween(layout.panelW(), minW, maxW),
-                normalizeBetween(layout.panelH(), minH, maxH));
-    }
-
-    private double normalizeBetween(int value, int min, int max) {
-        if (max <= min) {
-            return 0.0D;
-        }
-        return Mth.clamp((value - (double) min) / (double) (max - min), 0.0D, 1.0D);
-    }
-
-    private void beginBottomPanelDrag(double mouseX, double mouseY) {
-        BottomPanelLayout layout = resolveBottomPanelLayout();
-        this.bottomPanelDragging = true;
-        this.bottomPanelDragOffsetX = mouseX - layout.panelX();
-        this.bottomPanelDragOffsetY = mouseY - layout.panelY();
-    }
-
-    private void updateBottomPanelDrag(double mouseX, double mouseY) {
-        if (!this.bottomPanelDragging) {
-            return;
-        }
-        BottomPanelLayout layout = resolveBottomPanelLayout();
-        int minX = 8;
-        int maxX = Math.max(minX, this.width - layout.panelW() - 8);
-        int minY = TOP_H + 6;
-        int maxY = Math.max(minY, this.height - layout.panelH() - 6);
-        this.bottomPanelX = Mth.clamp((int) Math.round(mouseX - this.bottomPanelDragOffsetX), minX, maxX);
-        this.bottomPanelY = Mth.clamp((int) Math.round(mouseY - this.bottomPanelDragOffsetY), minY, maxY);
-        persistBottomPanelLayout(resolveBottomPanelLayout());
-    }
-
     private BottomPanelLayout resolveBottomPanelLayout() {
         int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, this.height - TOP_H - 16));
         int minH = Math.min(dynamicMaxH, Math.max(MIN_BOTTOM_H, minimumBottomHeightForGridRows(MIN_STORAGE_GRID_ROWS)));
         int maxH = Math.max(minH, dynamicMaxH);
-        int maxW = Math.max(360, this.width - 16);
-        int minW = Math.min(maxW, BOTTOM_PANEL_MIN_W);
 
-        this.bottomPanelWidth = Mth.clamp(this.bottomPanelWidth, minW, maxW);
         this.bottomPanelHeight = Mth.clamp(this.bottomPanelHeight, minH, maxH);
 
-        int minX = 8;
-        int maxX = Math.max(minX, this.width - this.bottomPanelWidth - 8);
-        int minY = TOP_H + 6;
-        int maxY = Math.max(minY, this.height - this.bottomPanelHeight - 6);
-
-        this.bottomPanelX = Mth.clamp(this.bottomPanelX, minX, maxX);
-        this.bottomPanelY = Mth.clamp(this.bottomPanelY, minY, maxY);
-
-        int contentX = this.bottomPanelX + BOTTOM_PANEL_PADDING;
-        int contentY = this.bottomPanelY + BOTTOM_PANEL_HEADER_H + 4;
+        int panelX = 0;
+        int panelY = this.height - this.bottomPanelHeight;
+        int panelW = this.width;
+        int panelH = this.bottomPanelHeight;
+        int contentX = BOTTOM_PANEL_PADDING;
+        int contentY = panelY + BOTTOM_PANEL_HEADER_H + 4;
         int sortX = contentX;
         int sortY = contentY + 2;
         int categoryX = sortX + 58;
         int categoryY = contentY;
-        int categoryH = Math.max(24, this.bottomPanelY + this.bottomPanelHeight - BOTTOM_PANEL_PADDING - categoryY);
+        int categoryH = Math.max(24, panelY + panelH - BOTTOM_PANEL_PADDING - categoryY);
         int storageX = categoryX + CATEGORY_W + 10;
         int storageY = contentY;
-        int storageW = Math.max(120, this.bottomPanelX + this.bottomPanelWidth - BOTTOM_PANEL_PADDING - storageX);
+        int storageW = Math.max(120, panelW - BOTTOM_PANEL_PADDING - storageX);
         int craftPanelX = storageX + Math.max(120, storageW - CRAFT_PANEL_W);
         int mainStorageW = Math.max(120, craftPanelX - storageX - CRAFT_PANEL_GAP);
         int searchW = Math.max(80, storageW - 102);
         int pagerX = storageX + searchW + 4;
         int toolY = storageY + 17;
         int gridY = toolY + TOOL_AREA_H + 4;
-        int gridH = Math.max(SLOT, this.bottomPanelY + this.bottomPanelHeight - BOTTOM_PANEL_PADDING - gridY);
+        int gridH = Math.max(SLOT, panelY + panelH - BOTTOM_PANEL_PADDING - gridY);
         int storageRows = Math.max(1, gridH / SLOT);
-        int craftPanelY = gridY;
-        int craftPanelH = computeCraftPanelHeight(storageRows);
-        int fillButtonX = this.bottomPanelX + this.bottomPanelWidth - BOTTOM_PANEL_PADDING - BOTTOM_PANEL_FILL_BUTTON_W;
-        int dragHandleX = this.bottomPanelX + 96;
-        int dragHandleW = Math.max(BOTTOM_PANEL_DRAG_HANDLE_MIN_W, fillButtonX - dragHandleX - 6);
+        int craftPanelY = storageY;
+        int craftPanelH = Math.max(CRAFT_PANEL_SEARCH_H + CRAFT_PANEL_SLOT + 27, panelY + panelH - BOTTOM_PANEL_PADDING - craftPanelY);
 
         return new BottomPanelLayout(
-                this.bottomPanelX,
-                this.bottomPanelY,
-                this.bottomPanelWidth,
-                this.bottomPanelHeight,
+                panelX,
+                panelY,
+                panelW,
+                panelH,
                 sortX,
                 sortY,
                 categoryX,
@@ -2796,10 +2619,7 @@ public final class BuilderScreen extends Screen {
                 gridH,
                 storageRows,
                 craftPanelY,
-                craftPanelH,
-                fillButtonX,
-                dragHandleX,
-                dragHandleW);
+                craftPanelH);
     }
 
     private record BottomPanelLayout(
@@ -2824,10 +2644,7 @@ public final class BuilderScreen extends Screen {
             int gridH,
             int storageRows,
             int craftPanelY,
-            int craftPanelH,
-            int fillButtonX,
-            int dragHandleX,
-            int dragHandleW) {
+            int craftPanelH) {
         private boolean contains(double mouseX, double mouseY) {
             return mouseX >= this.panelX && mouseX <= this.panelX + this.panelW
                     && mouseY >= this.panelY && mouseY <= this.panelY + this.panelH;
@@ -2839,9 +2656,37 @@ public final class BuilderScreen extends Screen {
         }
     }
 
+    private record CraftDockLayout(int cX, int cY) {
+        private int slotX(int slot) {
+            return switch (slot) {
+                case 0, 5 -> this.cX - CRAFT_DOCK_SLOT_SIZE - CRAFT_DOCK_GAP;
+                case 1, 6 -> this.cX + (CRAFT_DOCK_C_SIZE - CRAFT_DOCK_SLOT_SIZE) / 2;
+                case 2, 7 -> this.cX + CRAFT_DOCK_C_SIZE + CRAFT_DOCK_GAP;
+                case 3 -> this.cX - CRAFT_DOCK_SLOT_SIZE - CRAFT_DOCK_GAP;
+                case 4 -> this.cX + CRAFT_DOCK_C_SIZE + CRAFT_DOCK_GAP;
+                default -> this.cX;
+            };
+        }
+
+        private int slotY(int slot) {
+            return switch (slot) {
+                case 0, 1, 2 -> this.cY - CRAFT_DOCK_SLOT_SIZE - CRAFT_DOCK_GAP;
+                case 3, 4 -> this.cY + (CRAFT_DOCK_C_SIZE - CRAFT_DOCK_SLOT_SIZE) / 2;
+                case 5, 6, 7 -> this.cY + CRAFT_DOCK_C_SIZE + CRAFT_DOCK_GAP;
+                default -> this.cY;
+            };
+        }
+    }
+
     private int minimumBottomHeightForGridRows(int rows) {
-        int gridStartOffset = 21 + TOOL_AREA_H + 4; // bottomY -> tool row + tool row -> grid top gap
-        return gridStartOffset + (Math.max(1, rows) * SLOT) + GRID_BOTTOM_PADDING;
+        int gridTopOffset = BOTTOM_PANEL_HEADER_H + 4 + 17 + TOOL_AREA_H + 4;
+        return gridTopOffset + BOTTOM_PANEL_PADDING + (Math.max(1, rows) * SLOT);
+    }
+
+    private CraftDockLayout resolveCraftDockLayout(int x, int y) {
+        int cX = x + 14;
+        int cY = y + CRAFT_DOCK_SLOT_SIZE + CRAFT_DOCK_GAP;
+        return new CraftDockLayout(cX, cY);
     }
 
     public boolean isSearchFocused() {
@@ -2902,10 +2747,6 @@ public final class BuilderScreen extends Screen {
             return 0;
         }
         return wanted;
-    }
-
-    private int computeCraftPanelHeight(int storageRows) {
-        return 39 + Math.max(1, storageRows) * CRAFT_PANEL_PITCH;
     }
 
     private int computeVisiblePinCells(int pinStartX, int rightBoundExclusive) {
@@ -4849,15 +4690,6 @@ public final class BuilderScreen extends Screen {
             return String.format("%.1fK B", buckets / 1_000.0);
         }
         return buckets + " B";
-    }
-
-    private static String describeRecentEntry(ClientRtsController.RecentEntry entry) {
-        return switch (entry.kind()) {
-            case S2CRtsStoragePagePayload.RECENT_ITEM_PLACED, S2CRtsStoragePagePayload.RECENT_FLUID_PLACED -> "Placed";
-            case S2CRtsStoragePagePayload.RECENT_ITEM_USED, S2CRtsStoragePagePayload.RECENT_FLUID_USED -> "Used";
-            case S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, S2CRtsStoragePagePayload.RECENT_FLUID_CRAFTED -> "Crafted";
-            default -> "Recent";
-        };
     }
 
     private String formatRecentAmount(ClientRtsController.RecentEntry entry) {

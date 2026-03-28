@@ -1,5 +1,5 @@
 RTSBUILDING DETAILED PROJECT RECORD
-Last Rewrite: 2026-03-22
+Last Rewrite: 2026-03-28
 Project Root: E:\RTSbuilding
 Runtime Target: Minecraft 1.21.1 + NeoForge 21.1.219 + Java 21
 
@@ -28,8 +28,9 @@ Main product goals:
 
 Current implemented gameplay surface:
 - RTS camera toggle and movement
-- bottom RTS builder UI with storage, hotbar/pins, categories, craft panel
-- left collapsible GUI binding sidebar for direct remote GUI shortcuts
+- full-width bottom RTS builder UI with storage, hotbar/pins, categories,
+  recent panel, craft panel, and a craft/GUIs dock
+- craft-dock GUI binding shortcuts with persistent server-backed slots
 - linked storage browsing with search, category filtering, paging, and sort
 - linked storage modes:
   - left-click link: extract + store
@@ -44,7 +45,9 @@ Current implemented gameplay surface:
 - remote mining with tool slot selection and progress sync
 - craft terminal + workbench-linked refill/import flows
 - craftables search panel with paging
+- draggable storage overlay on container/crafting screens
 - funnel mode and funnel buffer panel
+- AE2 network-backed item access through optional compat
 - FTB quests detect bridge for non-consume item tasks
 
 ================================================================
@@ -59,6 +62,7 @@ Build/runtime:
 
 Optional compat:
 - JEI API/runtime integration
+- AE2 storage-service bridge via optional reflection compat
 - FTB Quests / FTB Teams via reflection-based optional compat
 
 Important project files:
@@ -79,18 +83,21 @@ Client:
   - storage page state, craftables state, selected item/fluid, quick pins
   - quick pins and GUI binding labels are server-backed and synced through the
     storage page payload
+  - owns persistent normalized storage-overlay layout state
   - packet send helpers
   - menu handoff guard so delayed container GUI opens do not get preempted by
     `BuilderScreen`
 - `client/BuilderScreen.java`
   - main RTS full-screen UI
   - top bar modes
-  - bottom storage/craft UI
-  - left collapsible GUI sidebar with bind/open/clear flow
+  - bottom-anchored storage/craft dock UI
+  - craft-terminal button + 8-slot GUI bind/open/clear ring
   - shape placement flow
 - `client/RtsClientInputGate.java`
-  - overlay UI for container/crafting screens
+  - draggable overlay UI for container/crafting screens
   - intercepts input for linked pickup/import/crafting shortcuts
+- `client/RtsClientLayoutStore.java`
+  - persists normalized storage overlay layout to local config JSON
 - `client/RtsCraftTerminalScreen.java`
   - custom crafting screen with linked-storage side panel
 - `client/ClientInputHandler.java`
@@ -105,6 +112,7 @@ Server:
   - largest behavior hub
   - linked storage session state
   - persistent quick pins, recent history, and GUI bindings in player NBT
+  - AE2-aware linked item-handler resolution
   - browsing/search/paging
   - placement / interaction / mining / crafting / fluid handling
   - recent-entry tracking
@@ -120,6 +128,7 @@ Network:
 - `network/*Payload.java`
 
 Compat:
+- `compat/ae2/RtsAe2Compat.java`
 - `compat/jei/*`
 - `compat/ftb/RtsFtbCompat.java`
 - `compat/ftb/RtsFtbCompatImpl.java`
@@ -161,6 +170,15 @@ Persisted to player persistent NBT:
 - linked link modes
 - linked dimension
 - internal fluids
+- recent entries
+- quick pin item ids
+- GUI bindings
+
+Client-only layout persistence:
+- `RtsClientLayoutStore.StoragePanelLayout`
+- saved at `config/rtsbuilding-client-layout.json`
+- current overlay uses the normalized X/Y position directly
+- width/height stay in the schema so client layout state remains forward-compatible
 
 4.3 Linked storage behavior
 Linked item handlers are wrapped so extract-only links still expose:
@@ -221,9 +239,16 @@ Main builder bottom area now contains:
 - left storage grid
 - right recent grid
 - craft panel
+- craft dock:
+  - center `C` button opens the RTS craft terminal
+  - 8 surrounding GUI binding slots open / arm / clear saved targets
 
-Craft panel row count is intentionally clamped to the same number of
-visible storage rows to avoid the old extra-row mismatch.
+Builder bottom panel is now bottom-anchored and full-width instead of a
+free-floating dragged window.
+Current size controls:
+- `+` / `-` buttons resize panel height in row-sized steps
+- category/search/tool/grid/craft areas stretch to the available width
+- craft panel now uses the full dock height instead of matching storage rows exactly
 
 5.3 Hotbar + pin behavior
 Hotbar row:
@@ -248,7 +273,9 @@ Recent panel shows the latest:
 - crafted fluids (protocol supported even if not commonly produced)
 
 Recent entries are tracked server-side and sent with each storage page.
-Entries are de-duplicated by `(kind, id)` and moved to the front.
+Entries are merged by `(id, item-vs-fluid)` and moved to the front.
+This means repeated actions on the same item/fluid accumulate one running
+amount instead of creating separate placed/used/crafted rows.
 The client recent panel and recent-click selection both use this same
 unified recent list instead of a crafted-only subset.
 Recent entries are also serialized into the player RTS session NBT so they
@@ -279,14 +306,16 @@ Builder screen, ROTATE mode:
 - this also bypasses the old press/release drag split for this mode
 - goal: rotation always wins over normal block interaction
 
-5.6.2 GUI binding sidebar
+5.6.2 GUI binding craft dock
 Builder screen:
-- left edge has a collapsible GUI sidebar
+- GUI bindings now live in the craft dock near the sort/resize controls
+- slot count is 8 instead of the older 3-slot sidebar layout
 - each slot is server-backed persistent state, not client-only transient UI
 - left click on a bound slot opens the saved GUI target directly
-- right click arms a slot for rebinding
-- next left click on a world GUI block stores that target into the armed slot
+- left click on an empty slot arms it for the next world GUI bind
+- right click toggles armed rebind mode for a slot
 - shift + right click clears the slot
+- while a bind is armed, the world cursor shows a dedicated `+` marker
 - open path is server authoritative and uses the saved world target
 
 5.6.1 Remote menu-open handoff
@@ -300,6 +329,8 @@ Builder screen:
   container screen is constructed
 - server-side interaction itself already uses a temporary remote-POV context;
   this pass stabilizes the client menu takeover side of the flow
+- the remote-menu hint is now also accepted even if RTS camera/UI already
+  handed off, which avoids losing the incoming GUI during saved-bind opens
 
 5.7 Crafting support
 Crafting-related paths currently in project:
@@ -355,6 +386,7 @@ Main packet groups:
   - `C2SRtsLinkedPickupPayload`
   - `C2SRtsReturnCarriedPayload`
   - `C2SRtsQuickDropPayload`
+  - `C2SRtsFillInventoryPayload`
   - `C2SRtsStoreFluidPayload`
   - `C2SRtsStoreHotbarSlotPayload`
   - `C2SRtsSetQuickSlotPayload`
@@ -365,6 +397,7 @@ Main packet groups:
   - `S2CRtsMineProgressPayload`
 - utility:
   - `C2SRtsQuestDetectPayload`
+  - `S2CRtsRemoteMenuHintPayload`
   - funnel/mode/autostore payloads
 
 ================================================================
@@ -413,5 +446,20 @@ This rewrite reflects the repo state after the following functional pass:
 - decoupled pin count display from current search/filter results
 - added shift-store from RTS hotbar into linked storage
 - aligned craft panel visible rows with storage rows
+
+Post-1.0.7 follow-up reflected in the current repo state:
+- added optional AE2 network item-handler compat for linked storage browse /
+  extract / reported-count display paths
+- added client layout persistence through `RtsClientLayoutStore`
+- added `C2SRtsFillInventoryPayload` and linked fill-inventory behavior
+- replaced the old left GUI sidebar with a compact craft/GUI dock and expanded
+  GUI bindings from 3 to 8 slots
+- changed the main builder storage panel to a bottom-anchored full-width dock
+  with height-step resizing instead of free dragging
+- made the container/crafting overlay draggable through persisted normalized
+  X/Y layout state
+- changed recent-entry aggregation to merge repeated actions per item/fluid
+- relaxed remote-menu hint intake so bind-open/craft-terminal menu handoff is
+  more reliable outside the exact RTS-enabled frame
 
 End of file.

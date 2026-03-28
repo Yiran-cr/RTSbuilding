@@ -115,7 +115,7 @@ public final class RtsStorageManager {
     private static final int PLAYER_HOTBAR_SLOT_COUNT = 9;
     private static final int PLAYER_MAIN_INVENTORY_END_EXCLUSIVE = 36;
     private static final int QUICK_SLOT_COUNT = 27;
-    private static final int GUI_BINDING_SLOT_COUNT = 3;
+    private static final int GUI_BINDING_SLOT_COUNT = 8;
     private static final byte LINK_MODE_BIDIRECTIONAL = C2SRtsLinkStoragePayload.MODE_BIDIRECTIONAL;
     private static final byte LINK_MODE_EXTRACT_ONLY = C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY;
     private static final String CATEGORY_ALL = "all";
@@ -662,7 +662,6 @@ public final class RtsStorageManager {
 
         ServerLevel level = player.serverLevel();
         BlockPos pos = binding.pos();
-        sendRemoteMenuOpenHint(player, pos);
         SyntheticBlockInteraction interaction = createGuiBindingInteraction(player, pos);
         BlockHitResult hit = interaction.hit();
         Vec3 hitLocation = hit.getLocation();
@@ -4503,11 +4502,35 @@ public final class RtsStorageManager {
         if (session == null || entry == null || entry.id() == null || entry.id().isBlank()) {
             return;
         }
-        session.recentEntries.removeIf(existing -> existing.kind() == entry.kind() && existing.id().equals(entry.id()));
-        session.recentEntries.addFirst(entry);
+        RecentEntry merged = entry;
+        for (RecentEntry existing : session.recentEntries) {
+            if (!sameRecentKey(existing, entry)) {
+                continue;
+            }
+            long mergedAmount = Math.max(1L, existing.amount() + entry.amount());
+            long mergedCapacity = Math.max(Math.max(existing.capacity(), entry.capacity()), mergedAmount);
+            merged = new RecentEntry(entry.id(), mergedAmount, mergedCapacity, entry.kind());
+            break;
+        }
+        final RecentEntry mergedEntry = merged;
+        session.recentEntries.removeIf(existing -> sameRecentKey(existing, mergedEntry));
+        session.recentEntries.addFirst(mergedEntry);
         while (session.recentEntries.size() > RECENT_ENTRY_LIMIT) {
             session.recentEntries.removeLast();
         }
+    }
+
+    private static boolean sameRecentKey(RecentEntry a, RecentEntry b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.id().equals(b.id()) && isRecentFluidKind(a.kind()) == isRecentFluidKind(b.kind());
+    }
+
+    private static boolean isRecentFluidKind(byte kind) {
+        return kind == S2CRtsStoragePagePayload.RECENT_FLUID_PLACED
+                || kind == S2CRtsStoragePagePayload.RECENT_FLUID_USED
+                || kind == S2CRtsStoragePagePayload.RECENT_FLUID_CRAFTED;
     }
 
     private static void runQuestDetect(ServerPlayer player, Session session, boolean force) {
@@ -4846,7 +4869,7 @@ public final class RtsStorageManager {
     }
 
     private static void markRemoteMenuOpen(ServerPlayer player, Session session, AbstractContainerMenu menu, BlockPos pos) {
-        if (player == null || session == null) {
+        if (player == null || session == null || menu == null) {
             return;
         }
         session.remoteMenuValidationPos = pos == null ? null : pos.immutable();
@@ -5297,7 +5320,7 @@ public final class RtsStorageManager {
     private record GuiBinding(BlockPos pos, ResourceKey<Level> dimension, String label) {
     }
 
-    private static final class LinkedItemHandlerView implements IItemHandler {
+    private static final class LinkedItemHandlerView implements IItemHandler, RtsAe2Compat.ReportedCountItemHandler {
         private final IItemHandler delegate;
         private final boolean allowStore;
 
@@ -5334,6 +5357,12 @@ public final class RtsStorageManager {
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
             return this.delegate.isItemValid(slot, stack);
+        }
+
+        @Override
+        public long getReportedCount(int slot) {
+            ItemStack stack = this.delegate.getStackInSlot(slot);
+            return RtsAe2Compat.getReportedCount(this.delegate, slot, stack);
         }
     }
 

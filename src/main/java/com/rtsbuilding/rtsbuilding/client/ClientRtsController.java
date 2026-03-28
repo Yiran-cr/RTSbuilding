@@ -88,7 +88,7 @@ public final class ClientRtsController {
     private static final float[] INPUT_SENS_PRESETS = new float[] { 0.50F, 0.75F, 1.00F, 1.25F, 1.50F, 2.00F };
     private static final int INPUT_SENS_DEFAULT_INDEX = 2;
     private static final int QUICK_SLOT_COUNT = 27;
-    private static final int GUI_BINDING_SLOT_COUNT = 3;
+    private static final int GUI_BINDING_SLOT_COUNT = 8;
     private static final int CRAFTABLE_BATCH_SIZE = 12;
     private static final String CATEGORY_ALL = "all";
     private static final String CATEGORY_MOD_PREFIX = "mod|";
@@ -1214,7 +1214,7 @@ public final class ClientRtsController {
     }
 
     public void applyRemoteMenuHint(S2CRtsRemoteMenuHintPayload payload) {
-        if (!this.enabled || payload == null || payload.pos() == null) {
+        if (payload == null || payload.pos() == null) {
             return;
         }
         BlockPos pos = payload.pos().immutable();

@@ -1,0 +1,2095 @@
+2026-03-04 - RTS Fluid Normalization Refactor (NeoForge 1.21.x)
+
+[背景目標]
+- 移除 bucket 專例交互補丁，改為統一流體管線�?- 支持�?RTS storage / tool bar / pin 區右鍵把容器流體抽�?RTS 流體池�?- 支持�?RTS 流體池選取流體，對世界進行流體放置或機器灌注�?- UI 需要在 storage grid 左側增加 2 格一行（橙色）流體排，與原有搜尋共用�?- 內置容量目標：每種流�?100 桶；外部已綁定流體罐作共享容�?訪問來源�?
+[步驟 1 - 網路協議擴展]
+- 修改 `S2CRtsStoragePagePayload`�?  - 新增 `fluidIds / fluidAmounts / fluidCapacities` 三組字段�?  - 編解碼器(StreamCodec)同步寫入/讀取流體數據�?- 新增 `C2SRtsStoreFluidPayload`�?  - sourceType:
+    - 0 = storage item
+    - 1 = tool slot
+    - 2 = pin item
+  - toolSlot + itemId 作為 source 參數�?- 新增 `C2SRtsPlaceFluidPayload`�?  - BlockHit 位置 + face + hitVec + forcePlace + fluidId�?- 更新 `RtsPayloadRegistrar`�?  - 註冊 `C2SRtsStoreFluidPayload`�?  - 註冊 `C2SRtsPlaceFluidPayload`�?- 更新 `RtsNetworkHandlers`�?  - 新增 `handleStoreFluid` -> `RtsStorageManager.storeFluidFromContainer(...)`�?  - 新增 `handlePlaceFluid` -> `RtsStorageManager.placeFluid(...)`�?
+[步驟 2 - Server 端流體核心]
+- �?`RtsStorageManager` 引入 fluid stack:
+  - `FluidStack` / `FluidUtil` / `IFluidHandler` / `IFluidHandlerItem` / `FluidType`�?- 新增常量�?  - `FLUID_TRANSFER_MB = 1000`�? 桶）�?  - `INTERNAL_FLUID_CAPACITY_MB = 100000`�?00 桶）�?- `Session` 新增�?  - `internalFluidMb: Map<String, Long>`（玩�?RTS 內部流體池）�?- `linkStorage` 修改�?  - 以前只接�?`IItemHandler`�?  - 現在可接�?`IItemHandler` �?`IFluidHandler` 任一能力�?- `requestPage` 修改�?  - item 聚合保留�?  - fluid 聚合新增�?    - 聚合 session 內部流體池�?    - 聚合已綁定外�?`IFluidHandler` tank 內容�?    - capacity 由「外�?tank 容量 + 內置 100 桶基礎容量」合成�?  - 搜索/category/sort 同時作用�?item + fluid�?  - S2C payload 帶回 fluid 列表�?- 新增 `storeFluidFromContainer(...)`�?  - 支持來源：storage item / tool slot / pin item�?  - 對容器做 1 �?drain（fluid capability），再寫�?fluid network�?- 新增 `placeFluid(...)`�?  - 先檢查流體可用量�?  - 優先嘗試向目�?block �?fluid handler 灌注（機器兼容路徑）�?  - 若失敗，�?fallback �?bucket-like 使用流程放置流體�?  - 根據 remainder 推導實際消耗量，再�?fluid network 扣除�?- 新增 helper�?  - `findFluidHandler`
+  - `resolveLinkedFluidHandlers`
+  - `drainContainer`
+  - `insertFluidIntoNetwork`
+  - `extractFluidFromNetwork`
+  - `fillFluidHandlerAtTarget`
+  - `resolveConsumedFluidAmount`
+
+[步驟 3 - 移除 bucket 特判]
+- `placeSelected` 中移除：
+  - bucket 專屬 `useOn` 臨時位置分支�?- 刪除不再使用的方法：
+  - `resolveUseOnInteractionPosition(...)`
+  - `requiresRemoteUseOnContext(...)`
+- 結果�?  - �?item 放置路徑回歸統一邏輯�?  - 流體行為改由顯式 fluid 系統承擔�?
+[步驟 4 - Client Controller]
+- `ClientRtsController` 新增 state�?  - `fluidEntries`
+  - `selectedFluidId / selectedFluidLabel / selectedFluidPreview`
+- `applyStoragePage(...)` 新增 fluid 解析�?  - �?`BuiltInRegistries.FLUID` 還原流體�?  - 生成 bucket preview 用於 UI 顯示�?- 新增方法�?  - `selectFluidEntry`
+  - `placeSelectedFluid`
+  - `storeFluidFromStorageItem`
+  - `storeFluidFromPinnedItem`
+  - `storeFluidFromToolSlot`
+- 選擇互斥策略�?  - �?item 時清 fluid selection�?  - �?fluid 時清 item selection�?
+[步驟 5 - BuilderScreen UI/互動]
+- 新增 `hoveredFluidEntry`�?- 下方 panel 佈局改造：
+  - 左側新增橙色 fluid strip�? 格一行）�?  - 右側保持 item storage grid�?- 新增 `drawFluidGrid(...)`�?  - 顯示 fluid preview + 量�?overlay（桶數）�?  - 支援 hover tooltip（amount/capacity）�?- 點擊行為�?  - 左鍵 fluid �?=> `selectFluidEntry`�?  - 右鍵 storage/tool/pin => 觸發 `storeFluidFrom*`�?- 世界右鍵行為�?  - 若選�?fluid => �?`placeSelectedFluid(...)`�?  - 否則保留�?item/工具交互流�?- 刪除 client bucket 專用 raycast 判斷�?  - 移除 `shouldUseFluidSourceRaycast()`�?
+[步驟 6 - 編譯驗證]
+- 執行�?  - `.\gradlew.bat compileJava -x test`
+- 結果�?  - 編譯成功（僅 deprecation 提示，無編譯錯誤）�?
+[本次修改檔案]
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/S2CRtsStoragePagePayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsStoreFluidPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlaceFluidPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/RtsPayloadRegistrar.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java`
+- `architecture.txt`
+- `archetecture.txt`
+- `Journal.txt`
+
+2026-03-04 - Follow-up: UI label removal + direct fluid-block placement
+
+[需求]
+- 刪除 UI �?`Tools 1-9` / `RTS` / `Fluid` 三個文字標籤�?- 修正 fluid 右鍵地面無法放置：改為“在射線位置直接放流體方塊”，而非水桶右鍵路徑�?
+[步驟 A - UI 文本刪除]
+- 文件：`src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java`
+- 刪除以下 drawString�?  - 工具列標籤：`Tools 1-9`
+  - Pin 標籤：`RTS Pin ...`
+  - 流體列標籤：`Fluid`
+- 保留原有功能�?  - 工具欄切換、Pin 分頁、流體格點擊與右鍵提取均不變�?
+[步驟 B - Fluid 放置核心邏輯重寫]
+- 文件：`src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+- 入口：`placeFluid(...)`
+- 行為改為�?  1. 先嘗試目標方�?fluid handler 灌注（保留機器兼容）�?  2. 若灌注失敗，改走“直接放流體方塊”：
+     - 解析放置位：�?`clickedPos`，不可放則試 `clickedPos.relative(face)`�?     - 檢查可放置性（replaceable / non-solid / liquid container / canBePlacedInLevel）�?     - 直接生成與設�?fluid block state（不�?bucket useOn/useItem）�?  3. 成功後扣�?1 桶（1000 mB）流體�?
+[新增方法]
+- `resolveFluidPlacementPos(...)`
+- `canPlaceFluidAt(...)`
+- `placeFluidBlock(...)`
+
+[移除舊路徑]
+- `placeFluid` �?bucket-like fallback（`useItemOnWithMainHand` / `useItemWithMainHand`）不再參與流體方塊放置�?- 與之相關的“由剩餘桶內容推導消耗量”輔助邏輯不再用於此路徑�?
+[結果]
+- 點擊 Fluid 區的水後，右鍵世界可按射線命中邏輯直接放水方塊�?- 點擊機器時，仍保留先嘗試流體能力灌注�?- UI 三個文字標籤已移除�?
+[驗證]
+- `.\gradlew.bat compileJava -x test`
+- 結果：BUILD SUCCESSFUL�?
+2026-03-04 - Persist RTS link/fluid state into player NBT
+
+[需求]
+- 把「綁定存儲位置」與「RTS 模式內部流體池」存成玩�?NBT 一部分�?- 目標：玩家退出重進後，綁定箱子與已存流體保持一致�?
+[修改檔案]
+- `src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+
+[步驟 1 - Session 生命週期調整]
+- 新增 `getOrCreateSession(ServerPlayer)`�?  - 先查記憶�?`SESSIONS`�?  - 若不存在，建立新 session 並從玩家 NBT 載入�?  - 放回 `SESSIONS`�?- 把原先多�?`computeIfAbsent` 改走 `getOrCreateSession`，確�?session 可從 NBT 回填�?
+[步驟 2 - NBT Schema 設計]
+- 玩家 PersistentData 根節點：
+  - `rtsbuilding_storage_session`
+- 保存欄位�?  - `linked_positions`：`long[]`（`BlockPos#asLong`�?  - `linked_dimension`：`ResourceLocation` string
+  - `internal_fluids`：`List<CompoundTag>`
+    - `id`：fluid registry id
+    - `amount`：mB
+
+[步驟 3 - 寫入/讀取函式]
+- 新增 `loadSessionFromPlayerNbt(...)`�?  - 讀�?linked positions / dimension / internal fluid map�?  - �?fluid id �?registry 驗證，過濾非法資料�?- 新增 `saveSessionToPlayerNbt(...)`�?  - �?linked positions �?internal fluid map 反序列化寫回玩家 NBT�?
+[步驟 4 - 保存觸發點]
+- 登出�?  - `onPlayerLogout` 先保�?session，再從記憶體 map 移除�?- 綁定變更�?  - `linkStorage` link/unlink 後立即保存�?- 流體變更�?  - `storeFluidFromContainer` 成功後保存�?  - `placeFluid` 成功扣流體後保存�?- 維度清理�?  - `sanitizeSessionDimension` 清掉失效綁定時保存清理後狀態�?
+[結果]
+- 玩家斷線重連後�?  - 之前綁定過的 storage 位置會恢復�?  - RTS 內部流體池（每種流體 amount）會恢復�?
+[驗證]
+- `.\gradlew.bat compileJava -x test`
+- 結果：BUILD SUCCESSFUL（有 deprecation 提示，無錯誤）�?
+2026-03-04 - Ray payload sync for Item#use (fish bucket right-click fix)
+
+[問題]
+- RTS client 的右鍵命中是自定射線，但 server 只有 clickedPos/face/hitVec�?- 遇到 `Item#use()` 內部再次 raytrace（魚�?桶類）時，server 視角�?client RTS 游標不一致，導致交互失效�?
+[修改目標]
+- C2S 補齊 ray 資訊（`rayOrigin + rayDir`）�?- server �?`useItem` 路徑用該 ray 重建臨時交互上下文�?- 保持 `useItemOn` 主路徑不被破壞，降低對剪刀等交互回歸風險�?
+[修改檔案]
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlacePayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsInteractPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlaceFluidPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+
+[步驟 1 - Payload 擴展]
+- `C2SRtsPlacePayload` 新增�?  - `rayOriginX/Y/Z`
+  - `rayDirX/Y/Z`
+- `C2SRtsInteractPayload` 新增同樣 6 個欄位�?- `C2SRtsPlaceFluidPayload` 也補同樣 6 個欄位，保持協議一致性�?
+[步驟 2 - Client 發送側]
+- `BuilderScreen` �?`InteractionTarget` record 新增�?  - `rayOrigin`
+  - `rayDir`
+- `pickInteractionTarget` 構建 target 時寫入當�?RTS 游標 ray�?- 普通右鍵路徑與 wheel 路徑，所�?place/interact 呼叫都改�?ray�?- `ClientRtsController` 對應方法簽名改為接收 ray 並寫�?payload�?  - `placeSelected`
+  - `placeSelectedFluid`
+  - `interactEmpty`
+  - `interactBlockWithToolSlot`
+  - `interactBlockWithPinnedItem`
+  - `interactEntityWithToolSlot`
+  - `interactEntityWithPinnedItem`
+
+[步驟 3 - Server 接收/執行側]
+- `RtsNetworkHandlers` �?ray 欄位傳給�?  - `RtsStorageManager.placeSelected(...)`
+  - `RtsStorageManager.interactTarget(...)`
+  - `RtsStorageManager.placeFluid(...)`
+- `RtsStorageManager` 新增�?  - `parseRayContext(...)`
+  - `withTemporaryUseItemContext(...)`
+  - `withTemporaryInteractionRay(...)`
+- 執行策略�?  - `useItemOn(...)` 維持既有目標近距上下文（保護原有 on-block/on-entity 交互）�?  - `useItem(...)` fallback 改為使用 ray-aligned 上下文（修正魚桶類內�?raytrace）�?
+[兼容性預期]
+- 改善魚桶/桶類右鍵交互一致性�?- 盡量不影響剪刀等依�?`useOn` 的交互�?
+[驗證]
+- `.\gradlew.bat compileJava -x test`
+- 結果：BUILD SUCCESSFUL�?
+2026-03-04 - Rollback: Revert ray-context payload patch (restore previous RTS fluid behavior)
+
+[reason]
+- Regression after ray-context sync patch:
+  - RTS fluid placement failed (cannot pour water).
+  - Previously working fluid ingest/place behavior became unstable.
+
+[rollback scope]
+- Fully reverted ray-context payload/context chain added in fish-bucket fix attempt.
+- Restored previous stable interaction contract based on clickedPos/face/hitVec + temporary interaction position.
+
+[network rollback]
+- Reverted payload schema:
+  - C2SRtsPlacePayload: removed rayOriginX/Y/Z + rayDirX/Y/Z.
+  - C2SRtsInteractPayload: removed rayOriginX/Y/Z + rayDirX/Y/Z.
+  - C2SRtsPlaceFluidPayload: removed rayOriginX/Y/Z + rayDirX/Y/Z.
+- Updated RtsNetworkHandlers to stop forwarding ray fields.
+
+[client rollback]
+- Restored ClientRtsController method signatures (removed ray args):
+  - placeSelected
+  - placeSelectedFluid
+  - interactEmpty
+  - interactBlockWithToolSlot
+  - interactBlockWithPinnedItem
+  - interactEntityWithToolSlot
+  - interactEntityWithPinnedItem
+- Restored BuilderScreen interaction target model:
+  - removed rayOrigin/rayDir from InteractionTarget.
+  - removed all ray forwarding in normal RMB path and interaction wheel path.
+
+[server rollback]
+- Restored RtsStorageManager entrypoint signatures:
+  - placeSelected(..., itemId)
+  - placeFluid(..., fluidId)
+  - interactTarget(..., itemId)
+- Removed ray-specific runtime helpers:
+  - parseRayContext
+  - withTemporaryUseItemContext
+  - withTemporaryInteractionRay
+  - RayContext record
+- Restored fallback useItem context to withTemporaryInteractionPosition only.
+
+[changed files]
+- src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlacePayload.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsInteractPayload.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlaceFluidPayload.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- archetecture.txt
+- Journal.txt
+
+[validation]
+- Command: .\gradlew.bat compileJava -x test
+- Result: BUILD SUCCESSFUL
+
+2026-03-04 - Remote POV Context v2（真玩家視角上下文重建）
+
+[目標]
+- 不使�?fake player�?- �?server �?`Item#use()/Item#useOn` �?POV �?RTS 自定游標 ray 一致�?- 保持 NeoForge 互動鏈：`useItemOn -> consumesAction 判斷 -> useItem`�?
+[核心方案]
+- C2S payload 重新補齊：`rayOrigin + rayDir`�?- server 端以 hitVec + rayDir 重建「虛擬眼睛位置」：
+  - `virtualEye = hitVec - normalize(rayDir) * (reach - epsilon)`
+  - `virtualFeet = virtualEye - eyeHeight`
+  - 暫時把真玩家移到 virtualFeet 並朝�?hitVec 後執行原版互動�?- 完成互動後恢復玩家原始位置與朝向�?
+[涉及檔案]
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlacePayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsInteractPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsPlaceFluidPayload.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java`
+- `src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+
+[步驟 1 - 協議恢復 ray]
+- 三�?payload 重新加入欄位�?  - `rayOriginX/Y/Z`
+  - `rayDirX/Y/Z`
+- StreamCodec 讀寫同步補齊�?- `RtsNetworkHandlers` 轉發 ray 參數�?`RtsStorageManager`�?
+[步驟 2 - Client 傳遞鏈]
+- `BuilderScreen#pickInteractionTarget` 攜帶 `camPos + rayDir`�?- 正常右鍵、互動輪、fluid 放置全路徑傳�?ray�?- `ClientRtsController` 互動方法簽名恢復 ray 參數版本�?
+[步驟 3 - Server Remote POV Context]
+- `RtsStorageManager` 新增�?  - `parseRayContext(...)`
+  - `withTemporaryUseItemContext(...)`
+- 實作策略�?  - �?ray 無效 -> 回退舊邏輯（`withTemporaryInteractionPosition`）�?  - �?ray 有效 -> �?virtualEye 公式重建 POV，再執行互動�?
+[步驟 4 - 套用範圍]
+- `placeSelected`�?  - 主手分支 `useItemOn` �?fallback `useItem` 都放�?Remote POV Context�?  - linked-item 分支同樣套用�?- `interactTarget`�?  - tool-slot �?pin-item �?block 互動鏈都改為同一 Remote POV Context�?  - 仍保�?`useItemOn -> useItem` 並用 `consumesAction()` 控制 fallback�?
+[兼容性預期]
+- 對桶/魚桶/內部�?raytrace 的道具：server POV �?RTS 游標一致性更高�?- 對一�?useOn 道具：維持原順序與真玩家語義，不引入 fake-player 兼容問題�?
+[驗證]
+- `./gradlew.bat compileJava -x test`
+- 結果：`BUILD SUCCESSFUL`
+
+2026-03-04 - Yellow frame can lock fluid sources + top toggle
+
+[request]
+- Yellow frame lock method could not lock fluids.
+- Add top toggle to enable/disable fluid target lock.
+
+[implemented]
+1) Controller state
+- Added in `ClientRtsController`:
+  - `lockFluidTarget`
+  - `isFluidTargetLockEnabled()`
+  - `toggleFluidTargetLock()`
+
+2) Top UI toggle
+- Added top-bar button in `BuilderScreen`:
+  - `LOCK FLUID: ON/OFF`
+- Added click handling in `handleTopBarClick(...)`.
+- Added status-row text showing current fluid-lock state.
+
+3) Yellow frame targeting
+- Updated `RtsBoundaryRenderer` block raycast:
+  - supports `includeFluidSource` argument.
+  - uses `ClipContext.Fluid.SOURCE_ONLY` when fluid-lock is enabled.
+- Result: yellow frame can now lock and outline fluid source targets.
+
+4) Interaction target consistency
+- Updated `BuilderScreen#pickInteractionTarget(...)` clip-mode decision:
+  - fluid source enabled when `includeFluidSource || controller.isFluidTargetLockEnabled()`.
+- Ensures interaction target picking and yellow frame lock follow same toggle policy.
+
+[files]
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[validation]
+- .\gradlew.bat compileJava -x test
+- BUILD SUCCESSFUL (warnings only)
+
+2026-03-04 - Extend toggle: lock air block above solid block (for pouring-style use)
+
+[issue]
+- Pour-water style interaction needs air target.
+- Current lock hit remained on solid block and could miss expected behavior.
+
+[change]
+1) Toggle meaning expanded
+- Existing top toggle is now `FLUID/AIR LOCK: ON/OFF`.
+- Same toggle controls:
+  - fluid source lock
+  - air-above-solid lock
+
+2) Interaction target remap (BuilderScreen)
+- In lock mode ON, when hit is solid block and block above is air:
+  - remap target to the above air block.
+  - synthetic hit uses `Direction.UP` + center of above block.
+
+3) Yellow frame remap (RtsBoundaryRenderer)
+- Same remap rule applied before outline render.
+- If remapped target is air, render full yellow cube outline at that air cell.
+
+[effect]
+- User can lock the air cell above a solid block and perform pouring/air-use style actions more reliably.
+- Visual lock and actual interaction targeting remain aligned.
+
+[files]
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[validation]
+- .\gradlew.bat compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - Fluid placement distance/offset fix (server path)
+
+[issue]
+- Fluid placement looked distance-constrained and mostly worked near feet.
+- In non-air lock, aiming highlighted cell could place into side-neighbor cells.
+- In air lock mode, placement frequently failed.
+
+[server adjustments]
+1) Access check split for fluid placement
+- `placeFluid(...)` no longer uses generic `canAccessWorldTarget(...)`.
+- switched to new `canAccessFluidPlacementTarget(...)`:
+  - active RTS + chunk loaded
+  - pass if `level.mayInteract(player, pos)`
+  - or pass if `RtsCameraManager.isWithinActionRadius(player, pos)`
+  - if target cell is air, fallback-check `pos.below()` using same rule set
+
+2) Placement-position candidate reordering
+- `resolveFluidPlacementPos(...)` now:
+  - first tries clicked cell
+  - if side-face hit, prefers `clicked.above()`
+  - then tries face-adjacent cell
+  - then final fallback to `clicked.above()`
+- purpose: reduce lateral offset from side-face hits in RTS camera perspective
+
+[result]
+- Improved remote fluid target acceptance within RTS radius.
+- Improved consistency against front/back/left/right misplacement in non-air mode.
+- Better compatibility for air-target interactions through below-cell support check.
+
+[files]
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[validation]
+- .\gradlew.bat compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - 修正虛擬玩家朝向：由眼睛位置計算，並嚴格�?rayDir
+
+[定位]
+- 你指出「虛擬玩家看向方向可能不對」是關鍵，這次直接修那層�?- 核心問題：臨時互動朝向之前是用腳底位置計�?yaw/pitch，會導致俯仰與落點偏移�?
+[修改]
+1) `withTemporaryInteractionPosition(...)`
+- 朝向計算從：`yawPitchTo(feetPos, lookAt)`
+- 改為：`yawPitchTo(eyePos, lookAt)`
+- 其中 `eyePos = feetPos + eyeHeight`
+
+2) `withTemporaryUseItemContext(...)`
+- 保留 `virtualEye = hit - dir * (reach - eps)`
+- �?`lookAt` 改為 `virtualEye + normalize(rayDir) * reach`
+- 不再直接�?`hitVec` 當視線終點，避免 hit 點誤差帶來偏�?
+[預期改善]
+- 減少「只能腳底附近成功」的表現�?- 減少「對著黃框卻落在鄰格」的偏移�?- `useItem/useItemOn` 的內�?raytrace �?RTS cursor 更一致�?
+[檔案]
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[驗證]
+- .\gradlew.bat compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - 挖掘實裝：以鼠標綁定工具為唯一計算來源 + 取消速度懲罰
+
+[需求]
+- 挖掘時必須按照目前綁定在鼠標的工具計算挖掘等級與速度�?- 取消挖掘速度懲罰�?
+[核心修改]
+1) 挖掘速度計算改為只看綁定工具�?- 檔案：`RtsStorageManager#computeRemoteDestroyStep(...)`
+- 移除「carried 游標物品覆蓋工具」邏輯�?- 改為固定�?`toolSlot`，透過 `withTemporarySelectedSlot(...)` 計算 `state.getDestroyProgress(...)`�?
+2) 真正破壞方塊也只看綁定工具槽
+- 檔案：`RtsStorageManager#destroyMinedBlock(...)`
+- 移除 `destroyBlockWithCarriedTool(...)` 分支�?- 破壞行為改為�?`withTemporarySelectedSlot(...)` 內呼�?`gameMode.destroyBlock(pos)`�?
+3) 速度懲罰取消
+- 新增 `removeMiningSpeedPenalty(...)`�?  - 在「眼睛在水中且無水下呼吸附魔」時，補償水下速度懲罰（乘�?5x）�?- 保留原本 `withTemporaryOnGround(player, true, ...)`�?  - 持續取消空中挖掘懲罰�?
+[結果]
+- 挖掘等級/速度�?RTS 綁定工具槽唯一決定�?- 游標攜帶物品不再干擾挖掘速度與等級�?- 環境速度懲罰（至少空�?水下）被取消�?
+[修改檔案]
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[驗證狀態]
+- 目前 shell �?Java 執行環境出現內存/啟動不穩（OutOfMemory / 啟動失敗），
+  本次改動後無法完�?compile 驗證�?- �?Java 環境恢復後請重跑：`.\gradlew.bat compileJava -x test`
+
+2026-03-04 - Fix compile break + 1.21.1-correct underwater mining compensation
+
+[issue]
+- compileJava failed: EnchantmentHelper.hasAquaAffinity(ServerPlayer) not found.
+- Root cause: API drift in MC/NeoForge 1.21.1 (enchantment effect flow moved to attributes).
+
+[what I checked]
+- Read local neoform EnchantmentHelper.java and Player.java from Gradle cache sources jar.
+- Confirmed hasAquaAffinity helper is absent.
+- Confirmed underwater dig speed uses Attributes.SUBMERGED_MINING_SPEED.
+
+[code changes]
+1) RtsStorageManager imports
+- remove EnchantmentHelper import
+- add Attributes import
+
+2) removeMiningSpeedPenalty(...)
+- before: eye in water + !hasAquaAffinity => step * 5
+- after: eye in water + submergedMiningSpeed in (0,1) => step * (1/submergedMiningSpeed)
+
+[why this is safer]
+- No blacklist/whitelist and no enchantment hardcoding path.
+- Works with vanilla Aqua Affinity and modded attribute modifiers.
+- Uses runtime attribute state as single source of truth.
+
+[build]
+- .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - UI調整：分類樹、搜索清除按鈕、Tool可Pin、底部兩行保�?
+[你提出的問題]
+1) 底部UI在小尺度下常只有1行物品格，體感上接近�?行但被卡住�?2) Category字體/行感偏擠，且hover有一條不自然的線�?3) 希望分類先按模組，再可展開看子分類（創造模式分類）�?4) 需要「取消搜�?x」按鈕，快速解除搜索焦點並繼續選物品�?5) Tool欄物品也要能被pin，並避免Tool與Storage同時被視覺上“同時選中”�?
+[實作摘要]
+A. Category模型升級（client/server一致）
+- 類別token改為�?  - all
+  - mod|<namespace>
+  - tab|<namespace>|<creative_tab_key>
+- 保留向後兼容：舊的純namespace會自動轉成mod|namespace�?
+B. Server端分�?過濾
+- requestPage中加入Creative tab內容重建�?  `CreativeModeTabs.tryRebuildTabContents(...)`
+- 新增 item -> creative tab cache，使�?`CreativeModeTab.contains(new ItemStack(item))` 判定�?- 分類輸出改為樹狀token序列（mod後接tab子項）�?- 過濾邏輯�?  - mod選中：過濾命名空間（物品+流體�?  - tab選中：過濾該mod下屬於該創造tab的物品；流體在tab模式不顯�?
+C. Client端Category UI
+- Category面板改為可展�?收合的樹狀列表�?- 每個mod行右側增加展開鍵�?- 移除原本那條hover水平線�?- 調整行內文字位置與密度，避免字體顯得“壓UI”�?
+D. 搜索清除按鈕
+- 搜索欄右側新�?`x` 按鈕�?- 點擊後：清空搜索、同步controller搜索、取消焦點�?
+E. Tool/Pin與選取視�?- 新增從Tool直接pin能力�?  - hover pin + A，若沒有選中的Storage/Pin物品，會改用當前/hovered工具槽物品pin到該pin位�?- 當已選中Storage物品或Fluid時，Tool選中高亮會隱去，降低“同時選取”混淆�?
+F. 底部面板高度保底
+- 新增“可行時至少2行物品格”的最小高度計算，避免在邊界尺寸下被壓�?行�?
+G. 網路payload容量調整
+- category/categoriess[] 的UTF長度限制�?4提升�?28，避免樹狀token溢出�?
+[修改檔案]
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsRequestStoragePagePayload.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/S2CRtsStoragePagePayload.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[編譯驗證]
+- .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - 需求收尾：Category字更�?+ 刪除FLUID/AIR LOCK + 退出重進持久化保證
+
+[本次目標]
+1) Category 字體再小一點�?2) 刪除 FLUID/AIR LOCK（不再需要）�?3) 確保 linked 箱子�?RTS fluid 退出遊戲後再進仍保持一致�?
+[實作細節]
+A. Category 字體縮小
+- BuilderScreen 的分類行文字改用縮放繪製：`drawScaledText(...)`�?- 當前 scale = 0.80�?- 同步修正分類文字截斷寬度計算（依縮放後可用寬度截斷）�?
+B. 移除 FLUID/AIR LOCK 功能路徑
+1) UI �?- 移除頂欄按鈕：`FLUID/AIR LOCK: ON/OFF`�?- 移除狀態列�?lock 開關文字�?- 移除頂欄點擊切換 lock 的邏輯�?
+2) 互動/高亮�?- BuilderScreen 不再使用 lock 狀態去改寫 interaction target�?- 刪除 BuilderScreen �?`maybeLockAirAboveSolidBlock(...)`�?- RtsBoundaryRenderer 的黃框高亮不再做 lock 驅動�?air-above-solid 重映射�?
+3) 控制器層
+- 刪除 ClientRtsController �?lock 相關 state/API�?  - `lockFluidTarget`
+  - `isFluidTargetLockEnabled()`
+  - `toggleFluidTargetLock()`
+
+C. 持久化加固（linked + internal fluid�?- 原有 NBT 序列化仍保留�?  - root: `rtsbuilding_storage_session`
+  - linked: `linked_positions`, `linked_dimension`
+  - fluid: `internal_fluids`
+- 本次新增兩個保存時機：
+  1) `onRtsDisabled(...)` 立即 `saveSessionToPlayerNbt(...)`�?  2) `placeFluid(...)` 在「向方塊流體容器成功注入並消耗流體」分支也立即保存�?
+[對你需求的直接結果]
+- Category 字體更小、可讀性更符合面板密度�?- FLUID/AIR LOCK 已從 UI 與主互動路徑移除�?- linked 的箱子綁定與 RTS fluid 內部存量，在正常退出重進後可保持一致；
+  同時保存時機比之前更積極，降低中途狀態丟失風險�?
+[修改檔案]
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+[驗證]
+- .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - 微調：Category 文字置中 + 字體略放�?
+[你要求]
+- Category 字沒有居中�?- 希望稍微大一點，但仍比之前小�?
+[實作]
+- BuilderScreen:
+  1) 新增 `CATEGORY_TEXT_SCALE = 0.88F`（由 0.80 提升）�?  2) Category 標題改成面板水平置中�?  3) Category 每行文字改為�?     - 在可用區域內水平置中（考慮縮排與展開按鈕占位）�?     - 按縮放後字高做垂直居中�?     - 截斷寬度按縮放比例換算，避免過早省略�?
+[結果]
+- Category 標題與行內文字視覺居中�?- 字體比上一版略大、但仍小於原始大小�?
+[驗證]
+- .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- BUILD SUCCESSFUL
+
+2026-03-04 - Build SHAPE selector + mouse-open shape wheel + first-pass multi-place shapes (1.21.1)
+
+Scope
+- Client build UX for RTS placement: top bar shape selector, radial shape wheel (mouse-open, no Alt required), and shape-based multi-place dispatch.
+- Client state model: persistent per-session shape state in RTS controller.
+
+Architecture changes
+1) Build shape state channel (controller)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- Added enum: `BuildShape { BLOCK, LINE, SQUARE }`.
+- Added state field: `buildShape` (default `BLOCK`).
+- Added APIs:
+  - `getBuildShape()`
+  - `setBuildShape(BuildShape)`
+  - `cycleBuildShape(int step)`
+- Added reset on RTS mode transitions:
+  - when RTS camera/session enables
+  - when RTS camera/session disables
+- Result: shape selection has a single authoritative client state and always resets to safe default when leaving/re-entering RTS.
+
+2) Top bar SHAPE selector + no-key wheel entry
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added top button width constant: `SHAPE_BUTTON_W`.
+- Added top bar button: `SHAPE: <BLOCK|LINE|SQUARE>`.
+- Added click routing in `handleTopBarClick(...)` to open shape wheel at cursor position.
+- This gives a non-keyboard entry point (no Alt hold needed) to pick build mode quickly.
+
+3) Shape wheel interaction model
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added wheel state:
+  - `shapeWheelOpen`
+  - `shapeWheelCenterX`, `shapeWheelCenterY`
+- Added wheel layout constants:
+  - `SHAPE_WHEEL_RADIUS`
+  - `SHAPE_WHEEL_SLOT`
+- Added methods:
+  - `openShapeWheel(...)`, `closeShapeWheel()`
+  - `collectShapeWheelSlots()`
+  - `resolveShapeWheelOption(...)`
+  - `renderShapeWheel(...)`
+  - label helpers: `shapeLabel(...)`, `shapeShortLabel(...)`
+- Input routing while wheel open:
+  - LMB: select hovered shape and close
+  - RMB/MMB: cancel and close
+  - Mouse wheel: cycle shapes
+  - Keyboard `1/2/3`: pick BLOCK/LINE/SQUARE
+  - `Esc`: close
+- Mutual exclusion:
+  - shape wheel suppresses normal world placement and interaction wheel handling while open.
+
+4) Placement dispatch upgraded to shape-aware multi-place
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added `placeSelectedWithShape(...)` for selected item placement path.
+- Added `buildShapePlacementHits(...)` to expand one base hit into multiple target hits.
+- First-pass shapes:
+  - `BLOCK`: single target (old behavior)
+  - `LINE`: +/- 2 blocks from center (5 total)
+  - `SQUARE`: 3x3 on face plane (9 total)
+- Axis resolution:
+  - `resolveLineAxis(face, rayDir)` chooses a stable axis on target face plane using ray direction magnitudes.
+  - `resolveSquareAxes(face)` returns two orthogonal face-plane axes.
+- Multi-place dispatch uses existing `controller.placeSelected(...)` for each generated target, preserving server-side interaction rules and mod compatibility path.
+
+5) UX updates around wheel/shape state
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Cursor preview suppressed while shape wheel is open.
+- Guide text updated to include SHAPE wheel usage.
+- Top status line now includes current shape for visibility.
+
+Tech-stack / compatibility impact
+- No protocol payload changes required for this feature.
+- No server placement pipeline changes required.
+- Implemented as a pure client orchestration layer over existing RTS place payload path, reducing regression risk in multi-mod environments.
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+2026-03-04 - SHAPE v2: two-point parameterized builders (max 32) for LINE/SQUARE/CIRCLE/WALL/BOX
+
+Scope
+- Upgraded RTS shape placement from fixed templates to two-step point-A/point-B parameterized generation.
+- Expanded shape set and added per-parameter clamping rules.
+- Kept server/protocol untouched (client expands to multiple existing place payloads).
+
+1) Shape model expanded
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- `BuildShape` enum extended:
+  - BLOCK
+  - LINE
+  - SQUARE
+  - CIRCLE
+  - WALL
+  - BOX
+- Existing shape selection APIs (`get/set/cycle`) continue to work with larger enum set.
+
+2) Two-click head/tail placement flow
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added pending anchor state:
+  - `pendingShapeAnchor` (`ShapeAnchor {pos, face, shape}`)
+- Behavior for selected storage item placement:
+  - BLOCK: immediate single placement (old path)
+  - Non-BLOCK:
+    - first RMB sets point A only
+    - second RMB sets point B and executes batch placement
+- Pending anchor is cleared when:
+  - shape changes (wheel pick / wheel scroll / 1..6 key)
+  - mode switches
+  - fluid/tool interaction path is used
+  - screen closes
+
+3) Parameterized shape builders (all client-side)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Replaced fixed-radius generator with shape-specific builders:
+  - `addLineTargets(...)`
+    - 3D endpoint line from A->B
+    - max line length parameter capped by endpoint scaling to 32 blocks (offset <= 31)
+  - `addSquareTargets(...)`
+    - plane rectangle on hit-face plane using two orthogonal axes
+    - length/width each capped to 32
+  - `addCircleTargets(...)`
+    - filled circle (disk) on hit-face plane
+    - radius from A->B projected distance, capped to 32
+  - `addWallTargets(...)`
+    - vertical/horizontal wall rectangle (length + height/width)
+    - dimensions capped to 32
+  - `addBoxTargets(...)`
+    - filled cuboid A->B in XYZ
+    - each axis dimension capped to 32
+- New shared helpers:
+  - `clampShapeOffset(...)`, `dotDelta(...)`, `offsetPos(...)`
+  - `createShapePlacementHit(...)`
+
+4) UI + interaction updates
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Top status row now includes pending shape anchor state text:
+  - `A: unset (RMB sets point A)` / `A: x,y,z (RMB sets point B)`
+- Shape wheel now includes 6 shapes:
+  - BLOCK / LINE / SQUARE / CIRCLE / WALL / BOX
+- Shape wheel hotkeys extended:
+  - keys `1..6`
+- Guide text updated to describe two-click build flow and max-32 cap.
+
+5) Tech-stack / architecture impact
+- No new network packets and no server-side shape protocol.
+- Client remains orchestration layer that emits multiple existing `placeSelected` payloads.
+- Multi-mod interaction path is preserved because each generated target still uses existing server placement logic.
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+2026-03-04 - SHAPE v3: multi-stage point workflow + confirm, translucent ghost preview, fill/rotate controls
+
+Scope
+- Upgraded non-BLOCK shape flow from immediate/2-step placement to staged parameter capture with explicit final confirm.
+- Added in-world translucent ghost blocks for realtime preview during stage selection.
+- Added top-bar shape controls: Fill toggle and Rotate step button.
+
+1) Build workflow protocol (client-side state machine)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Replaced previous single anchor model with staged session model:
+  - `ShapeBuildPhase`: `NEED_SECOND_POINT`, `NEED_THIRD_POINT`, `READY_CONFIRM`
+  - `ShapeBuildSession`: stores shape, face, pointA, pointB, boxHeight and mouse baseline.
+- Placement flow now:
+  - `BLOCK`: single right-click immediate place (unchanged)
+  - 2D shapes (`LINE`, `SQUARE`, `CIRCLE`, `WALL`):
+    1. RMB set point A
+    2. RMB set point B
+    3. RMB confirm batch placement
+  - 3D shape (`BOX`):
+    1. RMB set point A
+    2. RMB set base point B (length/width)
+    3. Move mouse up/down for live height preview, RMB lock height
+    4. RMB confirm batch placement
+- Added early confirm path in right-click flow:
+  - `tryConfirmPendingShapeBuild(...)` runs before target interaction resolution.
+
+2) Shape parameterization and limits
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Kept max limit policy: dimension/radius max 32 (`SHAPE_MAX_DIMENSION`, `SHAPE_MAX_RADIUS`).
+- New shape input records:
+  - `ShapeBuildInput` (resolved current preview/confirm parameters)
+  - `RotatedOffset` (2D rotated integer offsets)
+- Updated target generators:
+  - `LINE`: clamped endpoint line interpolation
+  - `SQUARE`/`WALL`: plane rectangle generation with optional rotation + hollow/filled modes
+  - `CIRCLE`: radius-based disk/ring generation
+  - `BOX`: 3D cuboid with rotated base footprint and height stage
+
+3) BOX height realtime behavior (mouse vertical control)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added `BOX_HEIGHT_MOUSE_SCALE` and `resolveBoxHeightFromMouse(...)`.
+- Height uses screen-mouse Y delta relative to point-B click baseline.
+- During `NEED_THIRD_POINT` phase, preview updates continuously with mouse movement.
+
+4) Top bar controls near SHAPE
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added buttons adjacent to SHAPE:
+  - `FILL: ON/OFF` (`shapeFillEnabled`)
+  - `ROT: <deg>` (`shapeRotateDegrees`, +15deg per click)
+- Added status text exposure in row2:
+  - current fill state
+  - rotation angle
+  - staged prompt (`pendingShapeStatusText()`) showing current step / confirm readiness.
+
+5) In-world translucent ghost preview rendering
+- Files:
+  - src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+  - src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- Added public preview snapshot API from BuilderScreen:
+  - `ShapeGhostPreview getShapeGhostPreview()`
+- Renderer integration:
+  - `RtsBoundaryRenderer` now reads preview snapshot when BuilderScreen is open.
+  - Renders translucent ghost cubes via `RenderType.debugFilledBox` + `LevelRenderer.addChainedFilledBoxVertices(...)`.
+  - Renders outline on each ghost block via existing line buffer.
+  - Color changes when phase is `READY_CONFIRM` (clear visual ready state).
+
+6) UX text updates
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Guide panel updated to reflect:
+  - Fill/Rotate controls
+  - 2D/3D staged point capture
+  - explicit RMB confirm step
+  - BOX mouse-up/down height stage
+
+7) Stability note
+- During editing, `BuilderScreen.java` was accidentally re-encoded with UTF-8 BOM by shell replacement.
+- Fixed by rewriting with UTF-8 (no BOM) before final compile.
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+2026-03-04 - Effortless-style SHAPE workflow: ALT-hold radial selection, Cube fill attributes, staged commits, Ctrl+Z/Y history
+
+Scope
+- Refined non-block build UX to follow Effortless-like interaction phases:
+  1) ALT hold -> radial shape tool context
+  2) contextual fill attribute setup (Fill/Hollow/Skeleton)
+  3) staged point-based anchoring/extrusion with explicit commit
+  4) rollback/redo shortcuts via local history stack.
+
+1) Phase 1: ALT tool activation + radial selection (release-to-select)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added lifecycle state:
+  - `shapeWheelOpenedByAlt`
+  - `altShapeMenuHeld`
+- Added polling/lifecycle method:
+  - `updateAltShapeWheelLifecycle()` (called from `tick()`)
+- Behavior:
+  - Hold ALT in world area -> opens shape radial immediately
+  - Hover sector and release ALT -> current hovered sector is selected and wheel closes
+- Input conflict handling:
+  - right-drag camera rotation now suppressed while ALT is down
+  - interaction wheel modifier changed to ALT+CTRL (avoids ALT-only conflict with shape radial)
+
+2) Phase 2: contextual Cube property panel (Fill Attribute)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Replaced boolean fill toggle with 3-state enum:
+  - `ShapeFillMode { FILL, HOLLOW, SKELETON }`
+- Added right-side contextual panel rendering and click handling:
+  - `renderShapeContextPanel(...)`
+  - `handleShapeContextPanelClick(...)`
+- Panel offers direct selection for Fill/Hollow/Skeleton.
+- Top bar remains with quick controls:
+  - `FILL: <mode>`
+  - `ROT: <deg>`
+
+3) Phase 3: staged spatial commits (point -> plane -> volume -> confirm)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Existing staged session model retained and aligned with requested commit flow:
+  - non-block shapes require staged points before commit
+  - final right-click `confirm` sends batch placement
+- 2D shapes (`LINE/SQUARE/CIRCLE/WALL`):
+  - click A -> click B -> right-click confirm
+- 3D `BOX/CUBE`:
+  - click A -> click B (base) -> mouse up/down live height -> click lock height -> right-click confirm
+- `pendingShapeStatusText()` updated to reflect active phase prompts.
+
+4) Fill semantics refined (including skeleton)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- 2D rectangle-based shapes:
+  - `FILL`: full area
+  - `HOLLOW` / `SKELETON`: edge-only
+- Circle:
+  - `FILL`: disk
+  - `HOLLOW` / `SKELETON`: ring
+- Cube/Box:
+  - `FILL`: full volume
+  - `HOLLOW`: six-face shell (surface)
+  - `SKELETON`: 12-edge frame
+- Rotation remains active for generated plane offsets:
+  - supports diagonal rectangles/walls/base footprints.
+
+5) Undo/Redo (for safe exploration)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added local history stacks:
+  - `shapeUndoStack`
+  - `shapeRedoStack`
+  - capped by `SHAPE_HISTORY_LIMIT`
+- Added records:
+  - `ShapeHistoryBatch(itemId, face, positions)`
+- On batch confirm:
+  - recorded via `recordShapeBatchForUndo(...)`
+- Shortcuts:
+  - `Ctrl+Z` -> `undoLastShapeBatch()` using `controller.breakPlaced(...)` in reverse order
+  - `Ctrl+Y` -> `redoLastShapeBatch()` (requires currently selected item id matches recorded batch)
+
+6) Overlay / context presence
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added left helper panel + right attribute panel while non-block shape mode is active.
+- Updated guide text to reflect:
+  - ALT-hold radial selection
+  - staged commit flow
+  - Fill/Hollow/Skeleton
+  - Ctrl+Z / Ctrl+Y
+  - ALT+CTRL interaction-wheel fallback.
+
+7) Shape ghost preview retained
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- Existing translucent ghost path remains active (`RenderType.debugFilledBox`) and now reflects new fill mode + staged parameters in real-time.
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+2026-03-04 - Crash fix: Render buffer state bug in shape ghost overlay (IllegalStateException: Not building!)
+
+Issue
+- Client crashed on render thread with:
+  - `java.lang.IllegalStateException: Not building!`
+  - stack points to `LevelRenderer.renderLineBox(...)`
+  - crash site: `RtsBoundaryRenderer.onRenderLevel(...)`.
+
+Root cause
+- In `onRenderLevel`, code requested two VertexConsumers up front:
+  - `RenderType.lines()`
+  - `RenderType.debugFilledBox()`
+- Under BufferSource state switching, obtaining a second render type can end/switch active builder.
+- The previously cached `lineBuffer` then became stale/non-building but was still used for line writes,
+  producing the `Not building!` exception.
+
+Fix strategy
+- Stop holding mixed render-type consumers across state switches.
+- Draw per render-type in grouped phases and reacquire consumer after switching type.
+
+Code changes
+1) `RtsBoundaryRenderer.onRenderLevel(...)`
+- Removed eager `fillBuffer` acquisition.
+- Kept initial line rendering with `lineBuffer` only.
+- Changed ghost render call to pass `bufferSource` instead of pre-cached consumers.
+- End-batch order set explicitly after rendering:
+  - `endBatch(RenderType.lines())`
+  - `endBatch(RenderType.debugFilledBox())`
+
+2) `renderShapeGhostPreview(...)`
+- Signature changed:
+  - from `(Minecraft, PoseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer)`
+  - to `(Minecraft, PoseStack, BufferSource bufferSource)`
+- Rendering split into two passes:
+  - pass A: acquire `debugFilledBox` consumer and render all translucent fills
+  - pass B: reacquire `lines` consumer and render all outlines
+- Prevents stale-consumer usage across RenderType changes.
+
+Compatibility impact
+- No protocol/server changes.
+- Pure client render-path correction.
+- Preserves existing ghost visual behavior (fill + outline + ready-confirm color scheme).
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/RtsBoundaryRenderer.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+2026-03-04 - Shape UX refinement: side-only fill control, PageUp/PageDown height nudge, live x*y*z, center-based rotation
+
+Scope
+- Refined BuilderScreen shape UX per new requirement:
+  - Fill mode no longer adjusted from top bar.
+  - Fill handling moved to side context panel and made shape-dimension aware (1D/2D/3D).
+  - 3D cube height supports PageUp/PageDown micro adjustment.
+  - Live size text shown as `x*y*z`.
+  - Rotation now pivots around build geometry center (not anchor/cursor-biased offset).
+
+1) Top bar fill-control removal
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Removed top fill button rendering and click handler path.
+- Top bar keeps SHAPE and ROT controls; fill state still displayed in status text.
+
+2) Side panel as single fill-control source
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- `renderShapeContextPanel(...)` now drives fill-mode selection.
+- Added shape-aware mode availability via `availableFillModes(shape)`:
+  - LINE (1D): `FILL` only
+  - SQUARE/CIRCLE/WALL (2D): `FILL`, `HOLLOW`
+  - BOX/CUBE (3D): `FILL`, `HOLLOW`, `SKELETON`
+- Added `ensureFillModeForShape(shape)` to auto-normalize mode when shape switches.
+- `handleShapeContextPanelClick(...)` now iterates only allowed modes for the active shape.
+
+3) 3D height micro-adjust (PageUp/PageDown)
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added key handling in `keyPressed(...)`:
+  - `PageUp` => +1 height step
+  - `PageDown` => -1 height step
+  - with Shift => x4 step
+- Added `adjustBoxHeightNudge(int delta)` for BOX sessions in:
+  - `NEED_THIRD_POINT`
+  - `READY_CONFIRM`
+- Height calculation now combines mouse extrusion + key nudge:
+  - new `resolveCurrentBoxHeightOffset(session, mouseY)`
+
+4) Live `x*y*z` display
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Added `currentShapeSizeText()` to compute current preview bounding size in block units.
+- Side context panel now renders:
+  - `Size: x*y*z` (real-time with cursor and phase changes).
+- Added `shapeDimensionLabel(shape)` for panel context (1D/2D/3D).
+
+5) Rotation pivot correction to geometry center
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Reworked plane rotation helper:
+  - from `rotatePlaneOffset(a, b, degrees)`
+  - to `rotatePlaneOffset(a, b, centerA, centerB, degrees)`
+- Square/Wall rotated rectangle generation now computes center from current extent bounds.
+- BOX footprint rotation now computes center from base min/max extents before rotation.
+- Circle still rotates around its geometric center (0,0 local), preserving expected behavior.
+- Result: rotation aligns with build-center pivot instead of anchor-biased rotation.
+
+6) Prompt/guide text updates
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- Height-step prompt updated to include PageUp/PageDown.
+- Guide updated to mention height fine-tuning and center-based rotation behavior.
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+Validation
+- Command: .\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)`r`n`r`n2026-03-04 - Undo/Redo architecture extension: apply Ctrl+Z/Y beyond shape batches
+
+Scope
+- Extended placement history so Ctrl+Z/Ctrl+Y also works for non-shape single placement flows.
+- Kept existing shape batch undo behavior and merged it into one replay path.
+
+Behavior change
+- Before:
+  - Undo/redo stack recorded only shape-confirm batches.
+  - Single block placement in BLOCK mode and tool-slot direct placement were not recorded.
+- After:
+  - Single placement in BLOCK mode (pin item source) is recorded.
+  - Single placement from tool-slot direct place path is recorded.
+  - Existing LINE/SQUARE/CIRCLE/BOX batch placement remains recorded.
+  - Ctrl+Z/Ctrl+Y now operate on one unified placement history stack.
+
+Implementation details
+- File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+1) Input binding updates
+- keyPressed():
+  - Ctrl+Z now calls undoLastPlacementBatch().
+  - Ctrl+Y now calls redoLastPlacementBatch().
+
+2) New single-placement history capture
+- mouseReleased() tool-slot branch:
+  - after controller.placeSelected(...), calls recordSinglePlacementForUndo(..., TOOL_SLOT, ..., selectedToolSlot).
+- placeSelectedWithShape() BLOCK branch:
+  - after controller.placeSelected(...), calls recordSinglePlacementForUndo(..., PIN_ITEM, selectedItemId, -1).
+
+3) Unified batch recording path
+- Replaced shape-only recorder with generic recorder:
+  - recordPlacementBatchForUndo(replayKind, itemId, toolSlot, face, positions)
+  - recordSinglePlacementForUndo(...) delegates to the generic recorder with a 1-block list.
+- tryConfirmPendingShapeBuild() now converts shape hits to block-pos list and records via generic path.
+
+4) Replay context typing
+- ShapeHistoryBatch now stores replay context fields:
+  - replayKind (PIN_ITEM / TOOL_SLOT)
+  - itemId
+  - toolSlot
+  - face
+  - positions
+- Added enum PlacementReplayKind { PIN_ITEM, TOOL_SLOT }.
+
+5) Redo routing logic
+- redoLastPlacementBatch():
+  - PIN_ITEM history: requires current selected pinned item ID to match recorded itemId.
+  - TOOL_SLOT history: clears pinned/fluid selection, restores recorded hotbar slot, then replays placements.
+- Replay still uses controller.placeSelected(...) per block with recorded face.
+
+Architecture impact
+- Client-side interaction architecture now treats placement actions as source-typed replay events rather than shape-only history.
+- No network payload schema change.
+- No server-side behavior change.
+- No data/NBT schema change.
+
+Validation
+- Command: .\\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+
+2026-03-04 - Shape undo parity fix: all shapes Ctrl+Z now remove placed block reliably and refund materials
+
+Problem observed
+- Non-cube shape undo could miss real placed blocks in some click contexts.
+- Root cause: undo history stored intended target block-pos, but actual placement can resolve to `target.relative(face)` (normal vanilla use-on behavior).
+- When undo attempted wrong pos, `PlacedBlockTrackerData` check failed, so no remove and no material refund.
+
+Design change
+- Extend break packet/context with ray-facing info and fallback policy:
+  - Added `face` and `allowAdjacentFallback` into `C2SRtsBreakPayload`.
+- Server break path now supports deterministic 1-step adjacent fallback:
+  - Try requested `pos` first.
+  - If not tracked and fallback enabled, try `pos.relative(face)`.
+  - Only then proceed to remove+refund path.
+
+Client changes
+1) `src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java`
+- Undo loop now calls:
+  - `controller.breakPlaced(pos, batch.face(), true)`
+- Effect: shape undo includes directional context for every recorded placement batch.
+
+2) `src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java`
+- Added overload:
+  - `breakPlaced(BlockPos pos, Direction face, boolean allowAdjacentFallback)`
+- Existing single-arg method kept for compatibility and delegates with safe defaults.
+
+Network changes
+3) `src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsBreakPayload.java`
+- Record expanded from:
+  - `(BlockPos pos)`
+- To:
+  - `(BlockPos pos, byte face, boolean allowAdjacentFallback)`
+- Updated stream codec read/write accordingly.
+
+4) `src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java`
+- `handleBreak(...)` now decodes face and passes fallback flag:
+  - `RtsStorageManager.breakPlaced(serverPlayer, payload.pos(), face, payload.allowAdjacentFallback())`
+
+Server changes
+5) `src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java`
+- Signature changed:
+  - `breakPlaced(ServerPlayer player, BlockPos pos, Direction face, boolean allowAdjacentFallback)`
+- Added fallback resolution logic using tracker:
+  - if `pos` not tracked and fallback enabled, attempt `pos.relative(face)`.
+- All downstream remove/refund/unlink operations now use resolved `targetPos`.
+- Internal mining fast-path updated to new signature with fallback disabled to preserve mining semantics.
+
+Impact
+- Ctrl+Z behavior for LINE/SQUARE/CIRCLE/BOX now aligns with cube expectation under mixed placement contexts.
+- Material recovery path (`refundFromState` + linked storage insertion) now consistently triggers when undoing these shapes.
+- No change to storage/NBT schema.
+
+Validation
+- Command: .\\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- src/main/java/com/rtsbuilding/rtsbuilding/client/ClientRtsController.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/C2SRtsBreakPayload.java
+- src/main/java/com/rtsbuilding/rtsbuilding/network/RtsNetworkHandlers.java
+- src/main/java/com/rtsbuilding/rtsbuilding/server/RtsStorageManager.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+2026-03-04 - Added detailed_project.txt (extreme-granularity consultant map)
+
+Goal
+- Provide a consultant-facing, function-level map so external code consultants can propose targeted fixes without re-scanning entire codebase.
+
+New artifact
+- Added file: detailed_project.txt
+- Size: large, full-project inventory (40 Java files).
+
+Content structure inside detailed_project.txt
+1) Consultant-oriented architecture summary
+- Runtime model (client orchestrator, server authority, packet bridge, persistence boundaries).
+- Critical execution chains:
+  - placement path
+  - shape confirm batch path
+  - undo/remove/refund path
+  - fluid place path
+  - mining path
+  - server refresh -> client storage page path
+- High-impact files for rapid root-cause analysis.
+- Reading guide for consultants.
+
+2) Full function inventory and usage map (high granularity)
+- Enumerates method-like declarations across src/main/java.
+- For each function:
+  - declaration path + line
+  - exact signature text
+  - override marker
+  - usage count in Java token scan
+  - usage site list (file:line + snippet)
+- Includes callback hint when usage count is zero but function is override-based.
+
+Generation methodology
+- Token + signature scanner generated from project source itself.
+- Supports multiline method signatures (to reduce misses in large APIs like server manager methods).
+- Produces call-like usage map by invocation token scan across all Java files.
+
+Why this helps targeted proposals
+- Consultants can jump directly from symptom area (e.g., undo/refund, fluid placement, mining) to exact function chain and all known call neighborhoods.
+- Reduces onboarding time for external contributors and increases precision of patch scope estimation.
+
+Notes/limits documented in file
+- Usage map is token-based; overloaded/common names may include extra/noisy hits.
+- Framework callback entries can legitimately have no direct Java call sites.
+
+Files changed
+- detailed_project.txt
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+2026-03-04 - Rotation hole fix + shape material cost indicator in side panel
+
+Issue summary
+- During non-90-degree shape rotation, generated structures (especially SQUARE/BOX) showed visible holes/gaps.
+- Root cause: previous generation used forward mapping (`rotatePlaneOffset` + integer rounding) from source grid to destination grid.
+  - Forward rounded mapping causes many-to-one collisions and leaves unassigned destination cells.
+  - This is expected aliasing for voxelized rotations when using only forward projection.
+
+Solution strategy
+- Switched key shape generation paths to inverse-coverage rasterization for rotated rectangles.
+- For 3D BOX, re-derived HOLLOW/SKELETON from actual rotated voxel volume boundary rather than unrotated index-boundary checks.
+- Added real-time right-panel material cost estimate (block count) based on current preview geometry.
+
+Detailed code changes
+File: src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+
+1) UI: right side context panel adds cost line
+- `renderShapeContextPanel(...)`
+  - panel height increased: `panelH` from 110 -> 122.
+  - new line rendered:
+    - `Cost: <N> blocks`
+  - retained existing size, ALT radial hint, undo/redo hint.
+- `handleShapeContextPanelClick(...)`
+  - panel hit box height synced to 122 to match visual panel.
+
+2) New preview-cost method
+- Added `currentShapeCostText()`:
+  - resolves current shape input via `resolveCurrentShapeBuildInput(...)`
+  - computes `buildShapePositions(...).size()`
+  - returns string count for side-panel display.
+
+3) Rotation hole fix for 2D rotated rectangles (used by SQUARE)
+- `addRotatedPlaneRectangleTargets(...)` refactored:
+  - old: iterate source rectangle -> forward rotate each cell -> rounded destination.
+  - new: build rotated fill cells by inverse mapping, then emit either:
+    - all cells (FILL)
+    - boundary cells only (HOLLOW).
+- Added `buildRotatedRectangleFillCells(minA,maxA,minB,maxB,degrees)`:
+  - computes rotated bbox from 4 corners.
+  - scans destination integer grid range.
+  - accepts cell when inverse-rotated center lies inside source cell-bounds (with ��0.5 voxel margin).
+- Added `isInverseRotatedInsideCellBounds(...)` for inverse inclusion test.
+- Added `isPlaneBoundaryCell(...)` for hollow outline extraction by 4-neighbor absence.
+
+4) Rotation hole fix for 3D BOX (footprint rotation + shell/skeleton)
+- `addBoxTargets(...)` refactored:
+  - old: unrotated x/z loops + forward rotated footprint + source-space `isBoxSurface/isBoxEdge` tests.
+  - new:
+    1. create rotated footprint via `buildRotatedRectangleFillCells(...)`.
+    2. FILL mode: extrude full footprint across Y range.
+    3. HOLLOW/SKELETON:
+       - build full rotated volume set first.
+       - classify boundary per voxel via axis-neighbor absence in world-grid:
+         - xBoundary: east/west missing
+         - yBoundary: above/below missing
+         - zBoundary: north/south missing
+       - HOLLOW keeps voxels with boundaryAxes >= 1.
+       - SKELETON keeps voxels with boundaryAxes >= 2.
+  - Effect: rotated cube/wall-like prisms no longer lose random cells from forward-mapping aliasing.
+
+5) Data structure addition
+- Added local helper record:
+  - `PlaneCell(int a, int b)`
+- Used as deduplicated integer-cell key for rotated 2D footprint sets.
+
+6) Cleanup impact
+- Previous rectangle/box boundary checks (`isRectangleEdge`, `isBoxSurface`, `isBoxEdge`) are no longer used in generation path after refactor.
+- `rotatePlaneOffset(...)` remains used for circle generation path; no behavior change there.
+
+Behavioral result
+- Rotated SQUARE/BOX preview and confirm placement now produce dense voxel coverage without random holes from projection rounding.
+- Right side panel now shows expected block consumption count for current shape preview state.
+
+Validation
+- Command: .\\gradlew.bat --no-daemon "-Dorg.gradle.jvmargs=-Xmx768m" compileJava -x test
+- Result: BUILD SUCCESSFUL (2026-03-04)
+
+Files changed
+- src/main/java/com/rtsbuilding/rtsbuilding/client/BuilderScreen.java
+- architecture.txt
+- archetecture.txt
+- Journal.txt
+[2026-03-05] Funnel phase-1 implementation log
+- Re-scoped work to funnel-only per user request; removed station/JEI/FTB in-progress protocol surfaces from active code path.
+- Deleted non-funnel payload files introduced earlier:
+  - network/C2SRtsLinkStationPayload.java
+  - network/C2SRtsOpenStationPayload.java
+  - network/C2SRtsJeiTransferPayload.java
+  - network/C2SRtsQuestDetectPayload.java
+  - network/RtsJeiTransferKind.java
+- Restored storage-page contract from accidental station extension, then re-extended only for funnel UI projection.
+
+Network changes
+- Added C2S:
+  - C2SRtsSetFunnelPayload(enabled)
+  - C2SRtsFunnelTargetPayload(target)
+- Registered handlers in RtsPayloadRegistrar.
+- Added handlers in RtsNetworkHandlers:
+  - handleSetFunnel -> RtsStorageManager.setFunnelEnabled
+  - handleFunnelTarget -> RtsStorageManager.updateFunnelTarget
+- Removed stray handler registrations/methods for station/JEI/quest.
+
+Server runtime changes (RtsStorageManager)
+- Added funnel constants:
+  - radius, per-tick entity/item budget, buffer stack cap, tick interval.
+- Session runtime fields:
+  - funnelEnabled
+  - funnelTarget
+  - funnelTickCooldown
+  - funnelBuffer (List<ItemStack>)
+- Added mode transition rule:
+  - leaving FUNNEL mode disables funnel and drains buffer.
+- Added funnel API:
+  - setFunnelEnabled(player, enabled)
+  - updateFunnelTarget(player, target)
+- Tick pipeline:
+  - tickMining now also executes tickFunnel for each session.
+- Funnel logic:
+  - verify mode + linked + target + action radius + chunk access.
+  - flush existing buffer to linked first each cycle.
+  - absorb item entities around target one item at a time.
+  - if linked full, spill to small funnel buffer.
+  - if both linked and buffer full, stop absorbing (item stays in world).
+- Insert preference improvement for funnel path:
+  - insertToHandlerPreferExisting: same-item stacks first, empty slots later.
+  - storeToLinkedOnlyPreferExisting uses above per handler.
+- Safety drain:
+  - on RTS disable/logout, buffer is drained to linked, then inventory/drop fallback to avoid loss.
+
+Storage page projection
+- S2CRtsStoragePagePayload now carries:
+  - funnelEnabled
+  - funnelBufferItemIds
+  - funnelBufferCounts
+- requestPage/sendEmptyPage updated accordingly.
+
+Client controller changes
+- Added funnel state/actions:
+  - isFunnelEnabled
+  - setFunnelEnabled/toggleFunnelEnabled
+  - updateFunnelTarget with cooldown+target-change guard
+- Added funnel buffer projection list + FunnelBufferEntry.
+- applyStoragePage reads server funnel state and buffer summary.
+
+Builder UI changes (BuilderScreen)
+- Added top action: FUNNEL.
+- Mode switching rules:
+  - entering FUNNEL auto-enables funnel.
+  - switching to INTERACT/LINK/ROTATE auto-disables funnel.
+- In FUNNEL mode tick:
+  - continuously sends picked block position as funnel target (throttled by controller).
+- Disabled mining start while in FUNNEL mode.
+- Added right-side funnel buffer panel:
+  - show/hide toggle button
+  - list of buffered item previews + counts
+  - hover tooltip support
+- On screen close, funnel disabled explicitly.
+
+Compile validation
+- Ran: .\gradlew.bat compileJava
+- Result: SUCCESS
+
+[2026-03-05] RTS craft terminal overlay fix + JEI fill gate update
+- Goal
+  - Fix issue where RTS craft terminal still appeared as vanilla crafting menu.
+  - Remove JEI restriction that required `RtsCraftTerminalScreen` class, so RTS-linked fill also works on non-RTS crafting terminals while RTS mode is active.
+
+- Root-cause notes
+  - Client terminal replacement depended on `pendingCraftTerminalOpen` time window only.
+  - If replacement timing missed that window, vanilla screen persisted.
+  - JEI transfer handler hard-blocked non-`RtsCraftTerminalScreen` even when RTS was enabled and linked.
+
+- Implemented changes
+  - `client/ClientRtsController.java`
+    - In `tick()`, changed replacement flow:
+      - if current screen is vanilla `CraftingScreen` + `CraftingMenu` and should be RTS terminal, force replace with `RtsCraftTerminalScreen`.
+      - fallback timer path remains for pending state countdown.
+    - Added `shouldUseRtsCraftTerminalScreen(CraftingScreen)`:
+      - returns true when `pendingCraftTerminalOpen` is true, OR
+      - crafting screen title string equals `RTS Craft Terminal`.
+  - `compat/jei/RtsCraftTerminalJeiTransferHandler.java`
+    - Removed strict `instanceof RtsCraftTerminalScreen` requirement.
+    - Updated condition to allow transfer when:
+      - RTS is enabled
+      - linked storage exists
+      - any crafting screen is open
+    - Updated user tooltip text to `Open any crafting menu first.`
+
+- Validation
+  - Ran `./gradlew.bat compileJava`.
+  - Build result: SUCCESS.
+  - No network payload/codec updates needed in this patch.
+
+[2026-03-05] Follow-up root-cause fix: terminal auto-close + JEI transfer gate
+- Symptom recap
+  - RTS craft terminal still looked overridden/closed.
+  - JEI showed `Open any crafting menu first` during RTS flow.
+
+- Investigation result
+  - Server-side terminal menu could be closed by crafting-menu validity checks in non-workbench context.
+  - JEI transfer handler had an extra screen-class guard that is unreliable in JEI recipe-view overlay flow.
+
+- Fixes applied
+  - `server/RtsStorageManager.java`
+    - `openCraftTerminal(...)` now opens an always-valid crafting menu:
+      - uses `ContainerLevelAccess.NULL`
+      - overrides `stillValid(...)` to return true
+    - removed dependency on reflection-based validation relaxation for this RTS terminal open path.
+  - `compat/jei/RtsCraftTerminalJeiTransferHandler.java`
+    - removed `minecraft.screen instanceof CraftingScreen` gate.
+    - transfer now only checks RTS enabled + linked storage, then sends `C2SRtsJeiTransferPayload`.
+
+- Why this should resolve the reported behavior
+  - Prevents immediate close of RTS craft menu caused by world-validity checks.
+  - Prevents false JEI rejection when current top-level screen type is not plain `CraftingScreen` but transfer container is valid.
+
+- Validation
+  - Ran `./gradlew.bat compileJava`.
+  - Build result: SUCCESS.
+- Additional stabilization
+  - `client/ClientRtsController.java`: increased craft-terminal pending replacement timeout from 30 ticks to 120 ticks to tolerate delayed menu-open packets.
+
+[2026-03-05] UX repair pass #1
+- Scope completed in this pass
+  - removed temporary import-buffer side panel display (client overlay)
+  - JEI shift behavior adjusted: Shift + '+' requests one set
+  - RTS category text scaled down slightly
+  - placed-block insta-break path replaced with silk-simulated normal drop flow
+
+- Client changes
+  - `client/RtsClientInputGate.java`
+    - removed import buffer panel drawing/preview queue.
+    - kept Shift+LClick and Shift+RClick menu-slot import behavior (existing payload path).
+  - `compat/jei/RtsCraftTerminalJeiTransferHandler.java`
+    - on transfer, if `Screen.hasShiftDown()` then force `maxTransfer=false` in `C2SRtsJeiTransferPayload`.
+    - non-shift keeps JEI-provided `maxTransfer`.
+  - `client/BuilderScreen.java`
+    - `CATEGORY_TEXT_SCALE` changed from `0.88F` to `0.84F`.
+
+- Server break/loot path change
+  - `server/RtsStorageManager.java`
+    - `breakPlaced(...)` no longer uses synthetic `removeBlock + refund item/container extraction`.
+    - now snapshots nearby drop entities, performs break via:
+      - temporary main hand `NETHERITE_PICKAXE` + `SILK_TOUCH`
+      - `player.gameMode.destroyBlock(targetPos)`
+    - collects newly spawned drops and imports them into linked storage with existing fallback route.
+    - preserves loot-table/block-entity driven drop semantics (important for machine NBT-sensitive blocks).
+    - removed obsolete helpers: `extractContainerContents(...)`, `refundFromState(...)`.
+
+- Validation
+  - Ran `./gradlew.bat compileJava`.
+  - Build result: SUCCESS.
+
+[2026-03-05] FTB integration pass (Quest Detect + RTS storage-aware ItemTask)
+- Implemented
+  - Added RTS UI button `QUEST DETECT` (top bar) to trigger manual detect.
+  - Added payload `C2SRtsQuestDetectPayload(mode)` and server network handler wiring.
+  - Added `ClientRtsController.detectQuestsNow()` facade.
+
+- Server detect path
+  - Added `RtsStorageManager.detectQuests(...)` manual entry.
+  - Added throttled helper `runQuestDetect(player, session, force)` with `nextQuestDetectTick` in session.
+  - Added `countLinkedItemsMatching(...)` for per-slot linked storage scans with predicate.
+
+- Auto detect hooks (throttled)
+  - after carried->linked import
+  - after menu-slot import to linked
+  - after mining auto-absorb changed
+  - after funnel changed
+  - after JEI transfer success
+  - after placed-block break recovery import
+
+- FTB compat implementation
+  - Added `compat/ftb/RtsFtbCompat`:
+    - checks `ftbquests` + `ftbteams` loaded
+    - initializes impl safely; disables on init failure
+  - Added `compat/ftb/RtsFtbCompatImpl` (reflection-based):
+    - resolve team from FTB Teams API
+    - resolve TeamData from `ServerQuestFile.INSTANCE.getOrCreateTeamData(team)`
+    - read submit task list (`submitTasks`)
+    - process only ItemTask-like objects
+    - skip tasks with `consumesResources=true` or `onlyFromCrafting=true`
+    - count matching stacks from player inventory + linked handlers using ItemTask `test(stack)`
+    - clamp by `getMaxProgress()` and write via `TeamData.setProgress(task, value)`
+
+- Notes on dependency strategy
+  - Used reflection in compat impl to avoid hard compile-time coupling for this pass.
+  - Core RTS code path remains load-safe when FTB mods are absent.
+
+- Validation
+  - Ran `./gradlew.bat compileJava`.
+  - Build result: SUCCESS.
+
+[2026-03-05] Craft terminal stabilization + custom RTS craft GUI pass
+- Runtime stabilization
+  - `ClientRtsController.tick()` now has pending-open fallback based on `player.containerMenu`:
+    - if pending and current menu is non-player `CraftingMenu`, force open RTS terminal screen immediately.
+    - keeps existing replacement from vanilla `CraftingScreen` as secondary path.
+
+- Dedicated craft GUI rewrite
+  - `client/RtsCraftTerminalScreen.java` rewritten to custom `AbstractContainerScreen<CraftingMenu>` implementation.
+  - custom panel rendering for terminal look; no vanilla workbench background.
+  - `RtsClientInputGate.resolvePanelY()` updated to treat `RtsCraftTerminalScreen` as top-aligned overlay context.
+
+- JEI transfer behavior correction
+  - transfer handler now forwards JEI `maxTransfer` directly (shift semantics from JEI preserved).
+  - server `applyJeiTransfer(...)` rewritten:
+    - combined extraction sources: linked storage first, then player inventory.
+    - supports single-pass and max-pass fill behavior.
+    - supports topping up already matching ingredient stacks.
+    - includes per-pass rollback to avoid half-applied failed pass.
+
+- Craft-result auto-refill in import flow
+  - in `importMenuSlotToLinked` result-slot path:
+    - snapshot pre-craft 3x3 blueprint,
+    - quick-move result and import to linked,
+    - refill grid from linked + player inventory using blueprint (fill-all mode for this shift import path).
+
+- Validation
+  - Ran `./gradlew.bat compileJava`.
+  - Build result: SUCCESS.
+
+[2026-03-05] Craft terminal UI harmony pass (inventory/hotbar visibility repair)
+- Symptom recap
+  - RTS crafting terminal looked unbalanced/harsh.
+  - player inventory + hotbar region not visually clear enough in current custom-painted background.
+
+- External comparison (web lookup)
+  - Reviewed ToM's Simple Storage terminal artifacts and class/texture structure:
+    - dedicated terminal textures (terminal.png, crafting_terminal.png) and texture-driven layout.
+  - Applied same principle in RTS terminal: prioritize stable slot scaffold first, then add styling.
+
+- Changes made
+  - client/RtsCraftTerminalScreen.java
+    - switched terminal base layer to vanilla crafting texture:
+      - textures/gui/container/crafting_table.png
+    - changed imageHeight from 196 to 166 (vanilla crafting baseline).
+    - adjusted title anchor to align with header zone.
+    - added restrained RTS overlay frames:
+      - top accent header
+      - craft grid frame
+      - result slot frame
+      - full player inventory + hotbar frame
+    - added drawPanelFrame(...) helper for consistent border rendering.
+
+- Result
+  - visual readability improved with clear inventory/hotbar boundaries.
+  - slot alignment now follows vanilla crafting geometry while keeping RTS identity overlay.
+
+- Validation
+  - Ran ./gradlew.bat compileJava.
+  - Build result: SUCCESS.
+[2026-03-05] Craft terminal main-panel linked grid + shift-right bulk import pass
+- User target
+  - linked storage grid must live inside RTS craft terminal main panel (not bottom overlay)
+  - Shift+RMB result import must be truly bulk, not one-by-one
+
+- Client terminal integration
+  - client/RtsCraftTerminalScreen.java
+    - expanded terminal width and added right-side linked panel region
+    - linked panel now includes:
+      - 8x5 item slots
+      - sort mode + sort direction mini buttons
+      - page prev/next and page index text
+      - STORE button for carried->linked import
+    - linked slot click behavior:
+      - LMB: pickup max stack to carried
+      - RMB: pickup one
+    - Shift + LMB/RMB on occupied menu slot sends C2SRtsImportMenuSlotPayload directly from terminal screen
+
+- Overlay decoupling
+  - client/RtsClientInputGate.java
+    - for RtsCraftTerminalScreen, overlay render/input hooks now early-return
+    - result: terminal uses in-panel linked UI only; old bottom overlay is not used in this screen
+
+- Server bulk craft import fix
+  - server/RtsStorageManager.java
+    - in importMenuSlotToLinked(...) result-slot branch:
+      - replaced single quickMoveStack path with iterative loop (guarded)
+      - each loop captures player inventory delta for crafted result and immediately stores to linked
+      - keeps blueprint refill after loop (illAll=true)
+    - this resolves "shift-right still importing one by one" symptom
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+
+[2026-03-09] Release metadata update pass
+- User request
+  - change version to `1.0.3-alpha`
+  - run build
+
+- Changes made
+  - `gradle.properties`
+    - updated `mod_version` from `1.0.3` to `1.0.3-alpha`
+  - version wiring remains property-driven through Gradle and mod template expansion
+
+- Build check
+  - Ran `./gradlew.bat build`
+  - Result: SUCCESS
+[2026-03-05] RTS terminal-only search/category migration pass
+- User target
+  - add search box + category column directly in RTS craft terminal linked panel
+  - terminal context should no longer rely on bottom overlay for search/category
+
+- Screen changes
+  - client/RtsCraftTerminalScreen.java
+    - added EditBox search control in linked panel
+    - search behavior:
+      - live sync to ClientRtsController.setStorageSearch(...)
+      - clear button
+      - Esc clears and exits focus
+      - Enter exits focus
+    - added category list column (scrollable + clickable)
+      - click category -> setStorageCategory(...)
+      - selected category auto-scrolls into visible range
+    - linked grid layout changed to 5x5 to make room for search + category UI
+
+- Scope boundary
+  - terminal overlay suppression remains active (RtsClientInputGate already early-returns on RtsCraftTerminalScreen)
+  - other container screens are unchanged and still use overlay behavior
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+[2026-03-05] Craft-result restoration + JEI R/U lookup integration pass
+- Issues addressed
+  - RTS terminal could not show crafting result / could not craft
+  - non-terminal shift bulk import was refilling from player inventory unexpectedly
+  - JEI R/U did not work on RTS-rendered storage item slots
+
+- Craft terminal fix (server)
+  - added server/RtsCraftTerminalMenu.java (extends CraftingMenu, stillValid=true)
+  - in RtsStorageManager.openCraftTerminal(...):
+    - replaced ContainerLevelAccess.NULL with dynamic access bound to player's world/position
+    - keeps remote validity relaxed while restoring crafting result recalculation path
+
+- Refill source policy split
+  - in importMenuSlotToLinked(...) result-slot path:
+    - terminal menu (RtsCraftTerminalMenu) keeps linked+player fallback refill
+    - non-terminal menus use linked-only refill
+  - efillCraftGridFromBlueprint(...) now accepts includePlayerFallback
+
+- JEI R/U on RTS storage slots
+  - added compat/jei/RtsCraftTerminalJeiGuiHandler.java
+    - container handler for RtsCraftTerminalScreen
+    - provides JEI clickable ingredient under mouse for terminal linked grid
+  - added compat/jei/RtsOverlayJeiGlobalGuiHandler.java
+    - global handler for RTS overlay on non-terminal container screens
+    - provides JEI clickable ingredient under mouse for overlay linked grid
+  - updated compat/jei/RtsJeiPlugin.java
+    - registered GUI handlers in egisterGuiHandlers(...)
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+[2026-03-05] Shift-left unified bulk craft-import pass
+- User feedback addressed
+  - RTS terminal refill still pulled from player inventory
+  - shift interaction felt split: first one craft, next click bulk
+  - target behavior: Shift + LMB directly bulk crafts with continuous refill
+
+- Server logic update (RtsStorageManager.importMenuSlotToLinked)
+  - result-slot bulk loop now refills during the loop, not only at end
+  - when result temporarily disappears, performs one immediate refill attempt and retries in same click
+  - after each successful craft-transfer step, triggers single-step refill and continues
+  - full refill still runs at loop end to leave grid state consistent
+
+- Source policy update
+  - result-slot refill now uses linked-only source (includePlayerFallback=false) in this import path
+  - terminal no longer consumes player inventory during refill
+  - normal crafting menus follow same linked-only refill mode for unified behavior
+
+- Input normalization
+  - RtsCraftTerminalScreen: result slot shift-import is now Shift + LMB only
+  - RtsClientInputGate: same rule applied for non-terminal container path (menuSlot == 0)
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+[2026-03-05] RTS terminal category module removal pass
+- User request
+  - remove category module from RTS terminal linked panel
+
+- Changes made
+  - client/RtsCraftTerminalScreen.java
+    - removed category column rendering and all category click/scroll logic
+    - removed category helper methods and related state fields
+    - kept search box + sort + page + linked slot interactions
+    - restored linked grid to 8 columns x 5 rows for denser visible storage slots
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+[2026-03-05] Top-bar compaction pass (Quest Detect overflow)
+- User issue
+  - Quest Detect button exceeded top-layer bounds
+  - requested slightly narrower top UI
+
+- Changes made
+  - client/BuilderScreen.java
+    - introduced compact top-bar constants:
+      - TOP_BUTTON_GAP, TOP_ACTION_BUTTON_W, TOP_SENS_BUTTON_W, TOP_AUTOSTORE_BUTTON_W, TOP_GUIDE_BUTTON_W
+    - narrowed widths for shape/rotate/quest buttons too
+    - updated both render path and click-hit path to use identical constants
+
+- Result
+  - top row footprint reduced; quest button no longer pushes out of UI in narrow layouts
+
+- Build check
+  - Ran ./gradlew.bat compileJava
+  - Result: SUCCESS
+
+[2026-03-09] RTS craftables lazy-search pagination pass
+- User issue
+  - RTS storage craftables lookup caused severe lag
+  - wanted craft lookup to stay idle when craft search is empty
+  - wanted only the first 12 results at first, then scroll-triggered fill
+  - wanted duplicate fetches avoided
+
+- Changes made
+  - `client/ClientRtsController.java`
+    - craftables requests now clear-and-stop on empty search
+    - added 12-result batch loading and `requestMoreCraftables()`
+    - added pending offset tracking to avoid duplicate in-flight fetches
+    - stale craftables payloads are ignored if search/toggle state no longer matches
+  - `server/RtsStorageManager.java`
+    - craftables request API now accepts `offset` + `limit`
+    - empty search returns immediately without recipe scan work
+    - server sends only the requested slice plus append/hasMore metadata
+    - remembers requested depth so post-craft refresh can refill the already-loaded range
+  - `network/C2SRtsRequestCraftablesPayload.java`
+    - added `offset` and `limit`
+  - `network/S2CRtsCraftablesPayload.java`
+    - added `offset`, `append`, and `hasMore`
+  - `network/RtsNetworkHandlers.java`
+    - forwards paged craftables request parameters
+  - `client/BuilderScreen.java`
+    - craft panel scroll now requests the next batch only when reaching the current bottom
+  - `client/RtsClientInputGate.java`
+    - overlay craft panel uses the same bottom-scroll incremental loading rule
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-20] RTS remote GUI first-open handoff stabilization
+- User issue
+  - right-click opening GUI in RTS could intermittently fail/crash on first open
+  - after opening the same GUI once outside RTS, the RTS path often became stable
+  - suspicion was a loading/timing issue rather than the server-side hit logic itself
+
+- Root-cause notes
+  - RTS already performs server-side remote interaction through a temporary remote-POV player context
+  - the unstable part was the client handoff after menu open:
+    - `ClientRtsController.tick()` restored `BuilderScreen` whenever `minecraft.screen == null`
+    - some container screens can spend a short first-open window with `screen == null` while the real GUI is still being constructed
+    - during that gap, RTS could reclaim the foreground and interfere with the menu open
+
+- Changes made
+  - `client/ClientRtsController.java`
+    - added generic `pendingRemoteMenuOpenTicks` grace window for RTS right-click paths that may open menus
+    - `placeSelected(...)`, `interactEmpty(...)`, block/entity interact helpers, and `openCraftTerminal()` now start that grace window before sending the packet
+    - `tick()` now checks for non-player `containerMenu` ownership before restoring `BuilderScreen`
+    - if a real remote menu is already open and `BuilderScreen` is still current, RTS clears it so the incoming container GUI can take foreground ownership cleanly
+  - no server/protocol changes were needed in this pass
+
+- Why this approach
+  - deeper "virtual player right-click" behavior is already present server-side
+  - this patch addresses the client-side menu-loading race directly, which better matches the reported "open once outside RTS, then RTS works" symptom
+
+- Build check
+  - Ran `powershell.exe -Command .\\gradlew.bat compileJava`
+  - Result: SUCCESS
+  - Ran `powershell.exe -Command .\\gradlew.bat build`
+  - Result: SUCCESS
+
+[2026-03-20] Craft dialog recipe-selection + consumed-material feedback popup
+- User issue
+  - right-click craft dialog should let the user choose the recipe before choosing craft count
+  - the craft dialog should render on a higher layer so other UI does not cover it
+  - after crafting, a high-layer popup should show the consumed materials
+
+- Changes made
+  - `server/RtsStorageManager.java`
+    - changed craftables grouping from single best-recipe collapse to grouped result entries that retain all matching recipe options
+    - each grouped craftable entry now sorts recipe options by craftability / missing count / output count
+    - craft execution now aggregates actual consumed items from extracted ingredients
+    - craft feedback packet now includes consumed item counts
+  - `network/S2CRtsCraftablesPayload.java`
+    - extended payload shape to carry flattened per-entry recipe-option lists
+  - `network/S2CRtsCraftFeedbackPayload.java`
+    - extended payload shape to carry consumed item ids + counts
+  - `client/ClientRtsController.java`
+    - craftable entries now decode and store recipe-option lists
+    - craft feedback now decodes consumed materials and keeps them for popup rendering
+    - repeated same-item craft feedback merges both crafted count and consumed counts while the popup is active
+  - `client/RtsCraftQuantityDialog.java`
+    - redesigned dialog to support recipe selection plus quantity input
+    - dialog now keeps selected recipe state, supports recipe scrolling, and confirms against the selected recipe id
+    - dialog render uses a high Z layer so it stays above other UI
+  - `client/RtsCraftFeedbackPopup.java`
+    - added high-layer craft-result popup that shows crafted output plus consumed materials
+  - `client/BuilderScreen.java`
+    - right-click craft tooltip now reflects recipe/count selection
+    - craft dialog open path now passes recipe options instead of a single recipe
+    - craft feedback render now uses the new high-layer popup
+  - `client/RtsClientInputGate.java`
+    - overlay craft dialog now uses the same recipe-selection flow
+    - overlay scroll input is routed into the open recipe dialog
+    - overlay craft feedback render now uses the same high-layer popup
+  - `detailed_project.txt`
+    - documented grouped craftables with per-entry recipe selection and consumed-material feedback popup behavior
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-20] RTS camera lower-height allowance
+- User issue
+  - RTS camera could not move down to player height
+  - wanted camera to be allowed at player height and up to 5 Y below the player anchor
+
+- Changes made
+  - `server/RtsCameraManager.java`
+    - lowered the authoritative RTS camera minimum height offset from `+4` to `-5`
+    - reapplies the vertical clamp after distance normalization so `MIN_DIST` cannot push camera below the new floor
+  - `client/ClientRtsController.java`
+    - matched local prediction camera Y clamp to the same `-5 .. +80` range
+    - introduced local camera height bound constants to avoid client/server drift in future edits
+    - reapplies the same vertical clamp after local distance normalization for prediction parity
+  - `detailed_project.txt`
+    - documented the current RTS camera vertical bounds and the requirement that client prediction matches server authority
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-20] Recent panel unified-list fix
+- User issue
+  - recent panel only showed crafted entries
+  - placed/used recent entries were being recorded server-side but filtered out on the client
+
+- Changes made
+  - `client/ClientRtsController.java`
+    - removed the extra crafted-only recent cache
+    - `getRecentEntries()` now returns the full `recentEntries` list
+    - `applyStoragePage(...)` now keeps all decoded recent entries in the same list used by the panel
+    - `selectRecentEntry(...)` now resolves from the unified recent list
+  - `detailed_project.txt`
+    - clarified that the client recent panel uses the unified server-backed recent list rather than a crafted-only subset
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-10] Storage split/recent/link-mode/rotate/quest detect refresh
+- User issue
+  - `detailed_project.txt` was outdated and needed a full rescan rewrite
+  - RTS storage needed a recent-history panel without adding extra bottom rows
+  - storage search/filter should not blank hotbar/pin information
+  - shift + left click on RTS hotbar should store that hotbar stack into linked storage
+  - linked storage needed two link types:
+    - left click: extract + store
+    - right click: extract only
+  - rotate mode should rotate the clicked block directly instead of triggering normal interaction
+  - quest detect button had stopped updating FTB non-consume inventory tasks
+  - craft panel row count should match visible storage rows
+
+- Changes made
+  - `server/RtsStorageManager.java`
+    - added persistent per-link mode storage in session + player NBT
+    - wrapped linked item/fluid handlers so extract-only links still allow reads/drains but reject inserts/fills
+    - extended storage page payload build to include:
+      - total item counts cache
+      - recent item/fluid entries
+    - added recent-entry tracking for place/use/craft/fluid actions
+    - added explicit block rotation server path
+    - added hotbar-to-linked store path
+    - removed linked-item quest detect double-counting of player main inventory
+  - `network/*`
+    - `C2SRtsLinkStoragePayload` now carries link mode
+    - added `C2SRtsRotateBlockPayload`
+    - added `C2SRtsStoreHotbarSlotPayload`
+    - extended `S2CRtsStoragePagePayload` with total counts + recent entries
+  - `client/ClientRtsController.java`
+    - now caches total item counts and recent entries
+    - added explicit rotate-block send helper
+    - added hotbar-store send helper
+    - added extract-only link send path
+  - `client/BuilderScreen.java`
+    - split bottom storage area into normal storage + recent panel
+    - recent panel supports item/fluid selection
+    - pin count overlays now read total count cache instead of current filtered page only
+    - shift + left click on RTS hotbar stores that slot to linked storage
+    - rotate mode right click now sends direct rotate packet
+    - link mode right click now creates extract-only links
+    - craft panel visible rows now match storage row count
+  - `client/RtsClientInputGate.java`
+    - pin count overlay now also uses total count cache
+  - `server/RtsCraftTerminalMenu.java`
+    - records craft output for recent history
+  - `compat/ftb/RtsFtbCompatImpl.java`
+    - made reflection more robust for newer FTB naming/layout changes
+    - team lookup now supports both `getTeamForPlayerID` and `getTeamForPlayer`
+    - task collection now prefers `collect(ItemTask.class)` and falls back to `submitTasks`
+  - `detailed_project.txt`
+    - fully rewritten from current repo scan
+
+- Build check
+  - Ran `./gradlew.bat build`
+  - Result: SUCCESS
+
+[2026-03-09] Release metadata update pass
+- User request
+  - change version to `1.0.4-alpha`
+
+- Changes made
+  - `gradle.properties`
+    - updated `mod_version` from `1.0.3-alpha` to `1.0.4-alpha`
+  - version wiring remains property-driven through Gradle and mod template expansion
+
+- Build check
+  - not run in this pass
+
+[2026-03-09] Craft search confirm-button pass
+- User issue
+  - craft panel search was still firing recipe lookup while typing each letter
+  - wanted an explicit confirm button before searching
+
+- Changes made
+  - `client/BuilderScreen.java`
+    - added compact `OK` button beside the craft search box
+    - craft search box now edits only local draft text
+    - craftables search is submitted only on `Enter` or `OK`
+    - `Escape` still clears and applies empty craft search
+  - `client/RtsClientInputGate.java`
+    - overlay craft panel uses the same `OK` submit behavior
+    - removed per-character craftables submit on typing/backspace/delete/paste
+    - draft/apply mismatch now highlights the `OK` button
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-09] Shape plane consistency pass
+- User issue
+  - `LINE` should follow the same flattened first-stage plane logic as `SQUARE`
+  - `SQUARE`/`BOX` first stage should keep all target blocks on one plane
+  - building near block edges could produce a mixed-height footprint with part of the result lifted upward
+
+- Changes made
+  - `client/BuilderScreen.java`
+    - `LINE`, `SQUARE`, and `BOX` first-stage face resolution now uses horizontal `UP` plane logic
+    - `LINE` second-point selection now projects onto the same horizontal build plane instead of using raw hovered block coordinates
+    - added uniform plane target resolution for `LINE` / `SQUARE` / `BOX`
+    - whole footprint now inherits one shared anchor-based offset decision instead of shifting occupied cells one-by-one
+    - kept `SQUARE` first-stage axes horizontal so footprint generation remains same-`Y`
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-09] Shape face-splitting pass
+- User issue
+  - if `pointA` is clicked on a block side face, the whole `LINE` / `SQUARE` / `BOX` result should land on that side’s outer layer
+  - it should not be shifted onto the top face
+  - requested approach: preserve original clicked face separately from construction-plane face
+
+- Changes made
+  - `client/BuilderScreen.java`
+    - split shape face state into:
+      - `planeFace` for projection / footprint generation
+      - `placementFace` for final placement direction
+    - `ShapeBuildSession` and `ShapeBuildInput` now carry both faces
+    - first click now stores original clicked face through `resolveShapePlacementFace(...)`
+    - uniform target resolution for `LINE` / `SQUARE` / `BOX` now follows the anchor’s original clicked face
+    - generated placement hits and undo/redo replay now use `placementFace`
+
+- Build check
+  - Ran `./gradlew.bat compileJava`
+  - Result: SUCCESS
+
+[2026-03-22] Persistent recent/pins + GUI binding sidebar + rotate click priority
+- User request
+  - make recent items and RTS hotbar/pin records part of save data so they survive exit/rejoin
+  - fix rotate mode being overridden by normal right-click behavior
+  - add a collapsible sidebar that can bind GUIs and open them directly
+  - bump version to `1.0.6-alpha`
+
+- Changes made
+  - `server/RtsStorageManager.java`
+    - extended persistent RTS session NBT with:
+      - recent entries
+      - quick pin item ids
+      - GUI binding slots
+    - added server APIs for:
+      - quick pin set/clear
+      - GUI bind/clear
+      - GUI open by saved binding slot
+    - storage page payload build now includes quick pin ids and GUI binding labels
+    - GUI bindings store target position, target dimension, and cached display label
+  - `network/S2CRtsStoragePagePayload.java`
+    - added quick pin item-id list
+    - added GUI binding label list
+  - `network/C2SRtsSetQuickSlotPayload.java`
+    - new C2S payload for persistent quick pin updates
+  - `network/C2SRtsSetGuiBindingPayload.java`
+    - new C2S payload for bind/clear GUI slot updates
+  - `network/C2SRtsOpenGuiBindingPayload.java`
+    - new C2S payload for opening a saved GUI binding
+  - `network/RtsNetworkHandlers.java`
+    - registered handlers for new quick pin / GUI binding payloads
+  - `network/RtsPayloadRegistrar.java`
+    - registered new payloads in the play channel
+  - `client/ClientRtsController.java`
+    - quick pins are now locally optimistic but server-backed
+    - added GUI binding label cache + open/bind/clear send helpers
+    - quick pins and GUI labels are applied from `S2CRtsStoragePagePayload`
+  - `client/BuilderScreen.java`
+    - added collapsible left GUI sidebar
+    - left click on bound slot opens saved GUI
+    - right click arms rebind mode for a slot
+    - shift + right click clears a slot
+    - next left click on a world block while armed saves that GUI target
+    - rotate mode right click now executes immediately on mouse press to guarantee rotation wins over generic right-click flow
+  - `gradle.properties`
+    - updated `mod_version` to `1.0.6-alpha`
+
+- Build check
+  - Ran `./gradlew.bat build`
+  - Result: SUCCESS
+
+[2026-03-26] AE2 network compat + client layout persistence
+- Functional pass
+  - add optional AE2-linked storage access
+  - persist storage panel layout client-side
+  - add fill-inventory-from-linked packet path for RTS storage
+
+- Changes made
+  - `compat/ae2/RtsAe2Compat.java`
+    - added reflection-based AE2 storage-service bridge
+    - exposes AE2 network contents through an `IItemHandler`-style view
+    - reports full stored counts separately from display-stack counts
+  - `server/RtsStorageManager.java`
+    - linked item resolution now prefers AE2 network access when available
+    - linked item count paths can use reported counts from wrapped handlers
+  - `client/RtsClientLayoutStore.java`
+    - added local JSON-backed layout persistence under `config/rtsbuilding-client-layout.json`
+  - `client/ClientRtsController.java`
+    - load/save normalized storage panel layout through `RtsClientLayoutStore`
+    - added `fillInventoryFromLinked()` packet helper
+  - `network/C2SRtsFillInventoryPayload.java`
+    - new C2S payload for linked-storage inventory fill
+  - `network/RtsNetworkHandlers.java`
+    - added handler that routes fill-inventory requests into `RtsStorageManager.fillPlayerInventoryFromLinked(...)`
+  - `network/RtsPayloadRegistrar.java`
+    - registered the new fill-inventory payload
+
+- Build check
+  - not re-run separately in this historical entry
+
+[2026-03-28] Bottom dock + overlay drag + recent aggregation pass
+- Functional pass
+  - replace the older floating/bespoke RTS storage presentation with a tighter post-1.0.7 layout
+  - expand GUI binding usability
+  - make recent history accumulate repeated actions instead of constantly replacing rows
+
+- Changes made
+  - `client/BuilderScreen.java`
+    - replaced the old floating bottom storage layout with a full-width bottom dock
+    - kept height resizing on `+` / `-` controls, but removed free drag positioning
+    - replaced the old left GUI sidebar with a compact craft/GUI dock
+    - craft dock center `C` button opens the RTS craft terminal
+    - GUI binding ring now supports 8 slots around the craft button
+    - empty left click arms bind mode, bound left click opens, right click toggles rebind, `Shift+Right` clears
+    - armed GUI bind now renders a dedicated `+` cursor in world space
+    - recent grid tooltip/overlay now emphasizes accumulated amount instead of action text badges
+  - `client/RtsClientInputGate.java`
+    - added `MOVE` drag handle for the storage overlay on container/crafting screens
+    - overlay position now uses persisted normalized X/Y layout state
+    - drag state is canceled cleanly on release, close, and screen swaps
+  - `client/ClientRtsController.java`
+    - increased GUI binding slot count from 3 to 8
+    - remote menu hints can now complete even after RTS handoff has already started
+  - `server/RtsStorageManager.java`
+    - increased server GUI binding slot count from 3 to 8
+    - GUI binding open path now waits for a real menu open before sending the remote-menu hint
+    - recent entries now merge by item/fluid identity and accumulate amounts
+    - guarded remote-menu validation hookup against null menus
+    - linked item wrappers now forward AE2-reported counts consistently
+
+- Build check
+  - validated in the 1.0.8-alpha release pass below
+
+[2026-03-28] Release 1.0.8-alpha metadata + docs pass
+- User request
+  - record post-`1.0.7` changes from `2026-03-26` to `2026-03-28` in git
+  - build a new `1.0.8-alpha`
+  - update `detailed_project.txt` and `Journal.txt`
+
+- Changes made
+  - `gradle.properties`
+    - updated `mod_version` from `1.0.7-alpha` to `1.0.8-alpha`
+  - `detailed_project.txt`
+    - refreshed the project map for:
+      - AE2 compat
+      - client layout persistence
+      - bottom-dock RTS UI
+      - craft-dock GUI bindings
+      - draggable overlay behavior
+      - recent-entry aggregation rules
+      - post-1.0.7 networking additions
+  - `Journal.txt`
+    - appended the 2026-03-26 through 2026-03-28 development/release log
+
+- Build check
+  - Ran `./gradlew.bat build`
+  - Result: SUCCESS
+  - Artifact: `build/libs/rtsbuilding-1.0.8-alpha.jar`
