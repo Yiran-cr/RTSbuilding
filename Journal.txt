@@ -1637,6 +1637,30 @@ Compile validation
   - Ran `./gradlew.bat build`
   - Result: SUCCESS
   - Warnings only: existing `EventBusSubscriber.Bus.GAME` deprecation warnings
+
+[2026-03-31] Deshitfication phase 3 - client packet gateway extraction
+- User request
+  - continue splitting with a `don't break things` bias
+
+- Changes made
+  - `client/RtsClientPacketGateway.java`
+    - extracted C2S payload construction and `PacketDistributor.sendToServer`
+      calls out of `ClientRtsController`
+    - centralizes camera move, storage page, craftables, quick slot,
+      GUI binding, place/interact, fluid, break, and mine packet sends
+  - `client/ClientRtsController.java`
+    - now delegates packet emission to the new gateway while keeping local
+      state validation and state mutations in place
+    - removed direct `sendToServer(...)` usage from the controller
+  - `deshitfication_plan.txt`
+    - refreshed phase progress for the packet gateway extraction
+  - `detailed_project.txt`
+    - updated the code map and change notes for the new helper
+
+- Build check
+  - Ran `./gradlew.bat build`
+  - Result: SUCCESS
+  - Warnings only: existing `EventBusSubscriber.Bus.GAME` deprecation warnings
 [2026-03-05] RTS terminal-only search/category migration pass
 - User target
   - add search box + category column directly in RTS craft terminal linked panel

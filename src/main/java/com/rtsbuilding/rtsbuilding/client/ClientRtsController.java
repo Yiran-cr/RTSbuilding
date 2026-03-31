@@ -254,7 +254,7 @@ public final class ClientRtsController {
 
     public void setMode(BuilderMode mode) {
         this.mode = mode;
-        PacketDistributor.sendToServer(new C2SRtsSetModePayload((byte) mode.ordinal()));
+        RtsClientPacketGateway.sendSetMode(mode);
     }
 
     public boolean isFunnelEnabled() {
@@ -266,7 +266,7 @@ public final class ClientRtsController {
             return;
         }
         this.funnelEnabled = enabled;
-        PacketDistributor.sendToServer(new C2SRtsSetFunnelPayload(enabled));
+        RtsClientPacketGateway.sendSetFunnelEnabled(enabled);
         if (!enabled) {
             this.lastFunnelTarget = null;
             this.funnelTargetCooldownTicks = 0;
@@ -850,7 +850,7 @@ public final class ClientRtsController {
         }
 
         // Fixed packet frequency: one packet per client tick while RTS is enabled.
-        PacketDistributor.sendToServer(new C2SRtsCameraMovePayload(
+        RtsClientPacketGateway.sendCameraMove(
                 forward,
                 strafe,
                 this.pendingPanX,
@@ -859,7 +859,7 @@ public final class ClientRtsController {
                 rotateYForTick,
                 scrollForTick,
                 this.pendingRotateSteps,
-                shift));
+                shift);
 
         this.pendingPanX = 0.0F;
         this.pendingPanY = 0.0F;
@@ -901,7 +901,7 @@ public final class ClientRtsController {
         }
         this.lastFunnelTarget = target.immutable();
         this.funnelTargetCooldownTicks = 2;
-        PacketDistributor.sendToServer(new C2SRtsFunnelTargetPayload(this.lastFunnelTarget));
+        RtsClientPacketGateway.sendFunnelTarget(this.lastFunnelTarget);
     }
 
     public void linkStorage(BlockPos pos) {
@@ -912,18 +912,16 @@ public final class ClientRtsController {
         if (pos == null) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsLinkStoragePayload(
-                pos,
-                allowStore ? C2SRtsLinkStoragePayload.MODE_BIDIRECTIONAL : C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY));
+        RtsClientPacketGateway.sendLinkStorage(pos, allowStore);
     }
 
     public void requestStoragePage(int page) {
-        PacketDistributor.sendToServer(new C2SRtsRequestStoragePagePayload(
+        RtsClientPacketGateway.sendRequestStoragePage(
                 page,
                 this.storageSearch,
                 this.storageCategory,
-                (byte) this.storageSort.ordinal(),
-                this.storageSortAscending));
+                this.storageSort,
+                this.storageSortAscending);
     }
 
     public void requestCraftables() {
@@ -944,7 +942,7 @@ public final class ClientRtsController {
 
     public void setAutoStoreMinedDrops(boolean enabled) {
         this.autoStoreMinedDrops = enabled;
-        PacketDistributor.sendToServer(new C2SRtsSetAutoStorePayload(enabled));
+        RtsClientPacketGateway.sendSetAutoStoreMinedDrops(enabled);
     }
 
     public void toggleAutoStoreMinedDrops() {
@@ -1013,7 +1011,7 @@ public final class ClientRtsController {
         if (recipeId == null || recipeId.isBlank()) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsCraftRecipePayload(recipeId, Math.max(1, craftCount)));
+        RtsClientPacketGateway.sendCraftRecipe(recipeId, craftCount);
     }
 
     public void openCraftTerminal() {
@@ -1021,26 +1019,26 @@ public final class ClientRtsController {
         this.pendingCraftTerminalOpen = true;
         this.pendingCraftTerminalOpenTicks = 120;
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsOpenCraftTerminalPayload());
+        RtsClientPacketGateway.sendOpenCraftTerminal();
     }
 
     public void detectQuestsNow() {
-        PacketDistributor.sendToServer(new C2SRtsQuestDetectPayload(C2SRtsQuestDetectPayload.MODE_MANUAL));
+        RtsClientPacketGateway.sendQuestDetectManual();
     }
 
     public void rotateBlock(BlockPos pos) {
         if (pos == null) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsRotateBlockPayload(pos));
+        RtsClientPacketGateway.sendRotateBlock(pos);
     }
 
     public void storeHotbarSlotToLinked(int slot) {
-        PacketDistributor.sendToServer(new C2SRtsStoreHotbarSlotPayload((byte) Mth.clamp(slot, 0, 8)));
+        RtsClientPacketGateway.sendStoreHotbarSlot(slot);
     }
 
     public void fillInventoryFromLinked() {
-        PacketDistributor.sendToServer(new C2SRtsFillInventoryPayload());
+        RtsClientPacketGateway.sendFillInventory();
     }
 
     private boolean shouldUseRtsCraftTerminalScreen(CraftingScreen craftingScreen) {
@@ -1055,12 +1053,7 @@ public final class ClientRtsController {
         if (itemId == null || itemId.isBlank() || dropPos == null) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsQuickDropPayload(
-                itemId,
-                (byte) Mth.clamp(amount, 1, 64),
-                dropPos.x,
-                dropPos.y,
-                dropPos.z));
+        RtsClientPacketGateway.sendQuickDrop(itemId, amount, dropPos);
     }
 
     public void applyStoragePage(S2CRtsStoragePagePayload payload) {
@@ -1265,11 +1258,11 @@ public final class ClientRtsController {
         if (!this.pendingCraftableOffsets.add(normalizedOffset)) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsRequestCraftablesPayload(
+        RtsClientPacketGateway.sendRequestCraftables(
                 this.craftablesSearch,
                 this.craftablesShowUnavailable,
                 normalizedOffset,
-                normalizedLimit));
+                normalizedLimit);
     }
 
     private void clearCraftablesState() {
@@ -1467,7 +1460,7 @@ public final class ClientRtsController {
             return;
         }
         setQuickSlotLocal(index, this.selectedItemId, this.selectedItemPreview.copy());
-        PacketDistributor.sendToServer(new C2SRtsSetQuickSlotPayload((byte) index, this.selectedItemId));
+        RtsClientPacketGateway.sendSetQuickSlot(index, this.selectedItemId);
     }
 
     public void assignQuickSlotFromToolItem(int index, ItemStack stack) {
@@ -1480,7 +1473,7 @@ public final class ClientRtsController {
         }
         String itemId = id.toString();
         setQuickSlotLocal(index, itemId, stack.copy());
-        PacketDistributor.sendToServer(new C2SRtsSetQuickSlotPayload((byte) index, itemId));
+        RtsClientPacketGateway.sendSetQuickSlot(index, itemId);
     }
 
     public void clearQuickSlot(int index) {
@@ -1488,7 +1481,7 @@ public final class ClientRtsController {
             return;
         }
         setQuickSlotLocal(index, "", ItemStack.EMPTY);
-        PacketDistributor.sendToServer(new C2SRtsSetQuickSlotPayload((byte) index, ""));
+        RtsClientPacketGateway.sendSetQuickSlot(index, "");
     }
 
     public void selectQuickSlot(int index) {
@@ -1520,12 +1513,7 @@ public final class ClientRtsController {
         if (index < 0 || index >= GUI_BINDING_SLOT_COUNT || pos == null) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsSetGuiBindingPayload(
-                (byte) index,
-                false,
-                pos,
-                (byte) (face == null ? -1 : face.get3DDataValue()),
-                itemIdHint == null ? "" : itemIdHint));
+        RtsClientPacketGateway.sendSetGuiBinding(index, pos, face, itemIdHint);
     }
 
     public void clearGuiBinding(int index) {
@@ -1533,7 +1521,7 @@ public final class ClientRtsController {
             return;
         }
         this.guiBindingLabels[index] = "";
-        PacketDistributor.sendToServer(new C2SRtsSetGuiBindingPayload((byte) index, true, BlockPos.ZERO, (byte) -1, ""));
+        RtsClientPacketGateway.sendClearGuiBinding(index);
     }
 
     public void openGuiBinding(int index) {
@@ -1541,7 +1529,7 @@ public final class ClientRtsController {
             return;
         }
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsOpenGuiBindingPayload((byte) index));
+        RtsClientPacketGateway.sendOpenGuiBinding(index);
     }
 
     public void placeSelected(BlockHitResult hit, boolean forcePlace, Vec3 rayOrigin, Vec3 rayDir) {
@@ -1550,69 +1538,39 @@ public final class ClientRtsController {
 
     public void placeSelected(BlockHitResult hit, boolean forcePlace, Vec3 rayOrigin, Vec3 rayDir, boolean skipIfOccupied) {
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsPlacePayload(
-                hit.getBlockPos(),
-                (byte) hit.getDirection().get3DDataValue(),
-                hit.getLocation().x,
-                hit.getLocation().y,
-                hit.getLocation().z,
-                (byte) (this.selectedItemId.isBlank() ? 0 : this.placeRotateSteps),
+        RtsClientPacketGateway.sendPlace(
+                hit,
                 forcePlace,
                 skipIfOccupied,
                 this.selectedItemId,
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+                this.selectedItemId.isBlank() ? 0 : this.placeRotateSteps,
+                rayOrigin,
+                rayDir);
     }
 
     public void placeSelectedFluid(BlockHitResult hit, boolean forcePlace, Vec3 rayOrigin, Vec3 rayDir) {
         if (hit == null || this.selectedFluidId.isBlank()) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsPlaceFluidPayload(
-                hit.getBlockPos(),
-                (byte) hit.getDirection().get3DDataValue(),
-                hit.getLocation().x,
-                hit.getLocation().y,
-                hit.getLocation().z,
-                forcePlace,
-                this.selectedFluidId,
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendPlaceFluid(hit, forcePlace, this.selectedFluidId, rayOrigin, rayDir);
     }
 
     public void storeFluidFromStorageItem(String itemId) {
         if (itemId == null || itemId.isBlank()) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsStoreFluidPayload(
-                C2SRtsStoreFluidPayload.SOURCE_STORAGE_ITEM,
-                (byte) 0,
-                itemId));
+        RtsClientPacketGateway.sendStoreFluid(C2SRtsStoreFluidPayload.SOURCE_STORAGE_ITEM, 0, itemId);
     }
 
     public void storeFluidFromPinnedItem(String itemId) {
         if (itemId == null || itemId.isBlank()) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsStoreFluidPayload(
-                C2SRtsStoreFluidPayload.SOURCE_PIN_ITEM,
-                (byte) 0,
-                itemId));
+        RtsClientPacketGateway.sendStoreFluid(C2SRtsStoreFluidPayload.SOURCE_PIN_ITEM, 0, itemId);
     }
 
     public void storeFluidFromToolSlot(int toolSlot) {
-        PacketDistributor.sendToServer(new C2SRtsStoreFluidPayload(
-                C2SRtsStoreFluidPayload.SOURCE_TOOL_SLOT,
-                (byte) Mth.clamp(toolSlot, 0, 8),
-                ""));
+        RtsClientPacketGateway.sendStoreFluid(C2SRtsStoreFluidPayload.SOURCE_TOOL_SLOT, toolSlot, "");
     }
 
     private void clearQuickSlotsLocal() {
@@ -1688,22 +1646,7 @@ public final class ClientRtsController {
 
     public void interactEmpty(BlockHitResult hit, Vec3 rayOrigin, Vec3 rayDir) {
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsPlacePayload(
-                hit.getBlockPos(),
-                (byte) hit.getDirection().get3DDataValue(),
-                hit.getLocation().x,
-                hit.getLocation().y,
-                hit.getLocation().z,
-                (byte) 0,
-                false,
-                false,
-                "",
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendPlace(hit, false, false, "", 0, rayOrigin, rayDir);
     }
 
     public void interactBlockWithToolSlot(BlockHitResult hit, int toolSlot, Vec3 rayOrigin, Vec3 rayDir) {
@@ -1711,22 +1654,7 @@ public final class ClientRtsController {
             return;
         }
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsInteractPayload(
-                C2SRtsInteractPayload.NO_ENTITY,
-                hit.getBlockPos(),
-                (byte) hit.getDirection().get3DDataValue(),
-                hit.getLocation().x,
-                hit.getLocation().y,
-                hit.getLocation().z,
-                C2SRtsInteractPayload.SOURCE_TOOL_SLOT,
-                (byte) Mth.clamp(toolSlot, 0, 8),
-                "",
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendInteractBlockWithToolSlot(hit, toolSlot, rayOrigin, rayDir);
     }
 
     public void interactBlockWithPinnedItem(BlockHitResult hit, String itemId, Vec3 rayOrigin, Vec3 rayDir) {
@@ -1734,22 +1662,7 @@ public final class ClientRtsController {
             return;
         }
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsInteractPayload(
-                C2SRtsInteractPayload.NO_ENTITY,
-                hit.getBlockPos(),
-                (byte) hit.getDirection().get3DDataValue(),
-                hit.getLocation().x,
-                hit.getLocation().y,
-                hit.getLocation().z,
-                C2SRtsInteractPayload.SOURCE_PIN_ITEM,
-                (byte) 0,
-                itemId,
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendInteractBlockWithPinnedItem(hit, itemId, rayOrigin, rayDir);
     }
 
     public void interactEntityWithToolSlot(int entityId, Vec3 hitLocation, int toolSlot, Vec3 rayOrigin, Vec3 rayDir) {
@@ -1757,22 +1670,7 @@ public final class ClientRtsController {
             return;
         }
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsInteractPayload(
-                entityId,
-                BlockPos.containing(hitLocation),
-                (byte) 1,
-                hitLocation.x,
-                hitLocation.y,
-                hitLocation.z,
-                C2SRtsInteractPayload.SOURCE_TOOL_SLOT,
-                (byte) Mth.clamp(toolSlot, 0, 8),
-                "",
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendInteractEntityWithToolSlot(entityId, hitLocation, toolSlot, rayOrigin, rayDir);
     }
 
     public void interactEntityWithPinnedItem(int entityId, Vec3 hitLocation, String itemId, Vec3 rayOrigin, Vec3 rayDir) {
@@ -1780,22 +1678,7 @@ public final class ClientRtsController {
             return;
         }
         beginRemoteMenuOpenGrace();
-        PacketDistributor.sendToServer(new C2SRtsInteractPayload(
-                entityId,
-                BlockPos.containing(hitLocation),
-                (byte) 1,
-                hitLocation.x,
-                hitLocation.y,
-                hitLocation.z,
-                C2SRtsInteractPayload.SOURCE_PIN_ITEM,
-                (byte) 0,
-                itemId,
-                rayOrigin.x,
-                rayOrigin.y,
-                rayOrigin.z,
-                rayDir.x,
-                rayDir.y,
-                rayDir.z));
+        RtsClientPacketGateway.sendInteractEntityWithPinnedItem(entityId, hitLocation, itemId, rayOrigin, rayDir);
     }
 
     public void breakPlaced(BlockPos pos) {
@@ -1807,10 +1690,7 @@ public final class ClientRtsController {
             return;
         }
         Direction resolvedFace = face == null ? Direction.UP : face;
-        PacketDistributor.sendToServer(new C2SRtsBreakPayload(
-                pos,
-                (byte) resolvedFace.get3DDataValue(),
-                allowAdjacentFallback));
+        RtsClientPacketGateway.sendBreakPlaced(pos, resolvedFace, allowAdjacentFallback);
     }
 
     public void startMining(BlockPos pos, int face, int toolSlot) {
@@ -1820,7 +1700,7 @@ public final class ClientRtsController {
         this.activeMinePos = pos.immutable();
         this.activeMineFace = face;
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
-        PacketDistributor.sendToServer(new C2SRtsMinePayload(this.activeMinePos, (byte) face, true, (byte) this.activeMineToolSlot));
+        RtsClientPacketGateway.sendMineStart(this.activeMinePos, face, this.activeMineToolSlot);
     }
 
     public void continueMining(int toolSlot) {
@@ -1831,11 +1711,7 @@ public final class ClientRtsController {
         if (this.activeMinePos == null || this.activeMineFace < 0) {
             return;
         }
-        PacketDistributor.sendToServer(new C2SRtsMinePayload(
-                this.activeMinePos,
-                (byte) this.activeMineFace,
-                false,
-                (byte) toolSlot));
+        RtsClientPacketGateway.sendMineAbort(this.activeMinePos, this.activeMineFace, toolSlot);
         this.activeMinePos = null;
         this.activeMineFace = -1;
     }

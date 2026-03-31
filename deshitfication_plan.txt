@@ -65,7 +65,11 @@ Current Progress
   no longer owns the remote-menu wrapper / reflection patch implementation.
 - Removed dead client remote-menu spoof state that was only being reset and
   never read after the 1.0.6 no-teleport rollback.
+- Added `client/RtsClientPacketGateway.java` so `ClientRtsController`
+  no longer owns C2S payload construction / dispatch.
+- `ClientRtsController` now keeps local state orchestration while delegating
+  packet emission to the gateway helper.
 
 Immediate Next Slice
 - Continue Phase 2 by extracting another self-contained `ClientRtsController`
-  slice, preferably packet gateway or storage/craftables state application.
+  slice, preferably storage/craftables state application.

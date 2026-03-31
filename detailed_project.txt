@@ -100,8 +100,10 @@ Client:
   - quick pins, GUI binding labels, and GUI binding icon item ids are
     server-backed and synced through the storage page payload
   - remote menu compat now delegates to `RtsClientRemoteMenuCompat`
+  - C2S packet emission now delegates to `RtsClientPacketGateway`
   - owns persistent normalized storage-overlay layout state
-  - packet send helpers
+  - high-level client actions still live here, but raw payload construction no
+    longer does
   - menu handoff guard so delayed container GUI opens do not get preempted by
     `BuilderScreen`
 - `client/BuilderScreen.java`
@@ -125,6 +127,10 @@ Client:
   - shared client remote-menu compat helper
   - Sophisticated Storage menu wrapping plus reflection-based validity patch
     extraction from `ClientRtsController`
+- `client/RtsClientPacketGateway.java`
+  - shared client packet gateway
+  - owns C2S payload construction/dispatch previously embedded inside
+    `ClientRtsController`
 - `client/RtsClientLayoutStore.java`
   - persists normalized storage overlay layout to local config JSON
 - `client/RtsCraftTerminalScreen.java`
@@ -527,5 +533,8 @@ Post-2026-03-28 15:30 follow-up reflected in the current repo state:
 - extracted client remote-menu compatibility and reflection-based validation
   patching from `ClientRtsController` into `RtsClientRemoteMenuCompat`, and
   removed dead client spoof-state leftovers from the old path
+- extracted client packet construction / dispatch from `ClientRtsController`
+  into `RtsClientPacketGateway` so the controller now focuses more on state
+  orchestration than payload wiring
 
 End of file.
