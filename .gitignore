@@ -41,12 +41,8 @@ PORT_MATRIX.md
 # branch roots, not as nested projects in main.
 sister-projects/
 
-# local-only presentation/video helpers
-tools/build_all_ports.ps1
-tools/build_unicom_training_video*.py
-tools/generate_unicom_restatements.py
-tools/resume_unicom_video_from_assets.py
-tools/video_progress_server.py
+# local-only helper scripts
+tools/
 
 # JVM crash logs / replays
 hs_err_pid*
