@@ -2,12 +2,11 @@ package com.rtsbuilding.rtsbuilding.client;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderStateShard;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
@@ -25,17 +24,14 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 
 @EventBusSubscriber(modid = RtsbuildingMod.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.GAME)
 public final class RtsBoundaryRenderer {
-    private static final int GL_LEQUAL = 515;
+    private static final int CHUNK_GUIDE_RADIUS_CHUNKS = 1;
 
     private static final RenderType CHUNK_XRAY_FILL = RenderType.create(
             "rtsbuilding_chunk_xray_fill",
@@ -92,89 +88,61 @@ public final class RtsBoundaryRenderer {
         poseStack.pushPose();
         poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
 
+        MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
         if (controller.isChunkCurtainVisible()) {
-            RenderType chunkFill = CHUNK_XRAY_FILL;
-            RenderType chunkLines = CHUNK_XRAY_LINES;
-            try (ByteBufferBuilder chunkFillBacking = new ByteBufferBuilder(chunkFill.bufferSize());
-                    ByteBufferBuilder chunkLineBacking = new ByteBufferBuilder(chunkLines.bufferSize())) {
-                BufferBuilder chunkFillBuffer = new BufferBuilder(chunkFillBacking, chunkFill.mode, chunkFill.format);
-                BufferBuilder chunkLineBuffer = new BufferBuilder(chunkLineBacking, chunkLines.mode, chunkLines.format);
-                renderChunkGuides(minecraft, controller, poseStack, chunkFillBuffer, chunkLineBuffer);
-                drawBuiltBufferNoDepth(chunkFill, chunkFillBuffer);
-                drawBuiltBufferNoDepth(chunkLines, chunkLineBuffer);
-            }
+            renderChunkGuides(
+                    minecraft,
+                    camPos,
+                    poseStack,
+                    bufferSource.getBuffer(CHUNK_XRAY_FILL),
+                    bufferSource.getBuffer(CHUNK_XRAY_LINES));
+            bufferSource.endBatch(CHUNK_XRAY_FILL);
+            bufferSource.endBatch(CHUNK_XRAY_LINES);
         }
 
-        RenderType lines = RenderType.lines();
-        RenderType filledBox = RenderType.debugFilledBox();
-        try (ByteBufferBuilder lineBacking = new ByteBufferBuilder(lines.bufferSize());
-                ByteBufferBuilder fillBacking = new ByteBufferBuilder(filledBox.bufferSize())) {
-            BufferBuilder lineBuffer = new BufferBuilder(lineBacking, lines.mode, lines.format);
-            BufferBuilder fillBuffer = new BufferBuilder(fillBacking, filledBox.mode, filledBox.format);
+        VertexConsumer lineBuffer = bufferSource.getBuffer(RenderType.lines());
+        VertexConsumer fillBuffer = bufferSource.getBuffer(RenderType.debugFilledBox());
+        double ax = controller.getAnchorX();
+        double ay = controller.getAnchorY();
+        double az = controller.getAnchorZ();
+        double r = controller.getMaxRadius();
 
-            double ax = controller.getAnchorX();
-            double ay = controller.getAnchorY();
-            double az = controller.getAnchorZ();
-            double r = controller.getMaxRadius();
+        double minX = ax - r;
+        double maxX = ax + r;
+        double minZ = az - r;
+        double maxZ = az + r;
 
-            double minX = ax - r;
-            double maxX = ax + r;
-            double minZ = az - r;
-            double maxZ = az + r;
+        // Drag limit boundary (3 chunks radius => 48 blocks)
+        LevelRenderer.renderLineBox(poseStack, lineBuffer, minX, ay - 0.25D, minZ, maxX, ay + 0.25D, maxZ,
+                1.0F, 0.25F, 0.25F, 1.0F);
 
-            // Drag limit boundary (3 chunks radius => 48 blocks)
-            LevelRenderer.renderLineBox(poseStack, lineBuffer, minX, ay - 0.25D, minZ, maxX, ay + 0.25D, maxZ,
-                    1.0F, 0.25F, 0.25F, 1.0F);
+        renderLinkedStorages(minecraft, controller, poseStack, lineBuffer);
+        renderHoveredInteractionTarget(minecraft, controller, poseStack, lineBuffer);
+        renderShapeGhostPreview(minecraft, poseStack, lineBuffer, fillBuffer);
 
-            renderLinkedStorages(minecraft, controller, poseStack, lineBuffer);
-            renderHoveredInteractionTarget(minecraft, controller, poseStack, lineBuffer);
-            renderShapeGhostPreview(minecraft, poseStack, lineBuffer, fillBuffer);
-
-            drawBuiltBuffer(lines, lineBuffer);
-            drawBuiltBuffer(filledBox, fillBuffer);
-        }
+        bufferSource.endBatch(RenderType.lines());
+        bufferSource.endBatch(RenderType.debugFilledBox());
         poseStack.popPose();
-    }
-
-    private static void drawBuiltBuffer(RenderType renderType, BufferBuilder buffer) {
-        MeshData meshData = buffer.build();
-        if (meshData != null) {
-            renderType.draw(meshData);
-        }
-    }
-
-    private static void drawBuiltBufferNoDepth(RenderType renderType, BufferBuilder buffer) {
-        MeshData meshData = buffer.build();
-        if (meshData != null) {
-            RenderSystem.disableDepthTest();
-            RenderSystem.depthMask(false);
-            renderType.draw(meshData);
-            RenderSystem.depthMask(true);
-            RenderSystem.enableDepthTest();
-            RenderSystem.depthFunc(GL_LEQUAL);
-        }
     }
 
     private static void renderChunkGuides(
             Minecraft minecraft,
-            ClientRtsController controller,
+            Vec3 cameraPosition,
             PoseStack poseStack,
             VertexConsumer fillBuffer,
             VertexConsumer lineBuffer) {
         if (minecraft.level == null) {
             return;
         }
-        int anchorChunkX = SectionPos.blockToSectionCoord(Mth.floor(controller.getAnchorX()));
-        int anchorChunkZ = SectionPos.blockToSectionCoord(Mth.floor(controller.getAnchorZ()));
-        int chunkRange = Math.max(1, Mth.ceil(controller.getMaxRadius() / 16.0D));
-        int minChunkX = anchorChunkX - chunkRange;
-        int maxChunkX = anchorChunkX + chunkRange;
-        int minChunkZ = anchorChunkZ - chunkRange;
-        int maxChunkZ = anchorChunkZ + chunkRange;
-        int playerY = minecraft.player == null
-                ? Mth.floor(controller.getAnchorY())
-                : minecraft.player.blockPosition().getY();
-        int guideY = Mth.clamp(playerY, minecraft.level.getMinBuildHeight(), minecraft.level.getMaxBuildHeight() - 1);
+        BlockPos cameraBlockPos = BlockPos.containing(cameraPosition);
+        int centerChunkX = SectionPos.blockToSectionCoord(cameraBlockPos.getX());
+        int centerChunkZ = SectionPos.blockToSectionCoord(cameraBlockPos.getZ());
+        int minChunkX = centerChunkX - CHUNK_GUIDE_RADIUS_CHUNKS;
+        int maxChunkX = centerChunkX + CHUNK_GUIDE_RADIUS_CHUNKS;
+        int minChunkZ = centerChunkZ - CHUNK_GUIDE_RADIUS_CHUNKS;
+        int maxChunkZ = centerChunkZ + CHUNK_GUIDE_RADIUS_CHUNKS;
+        int guideYSource = minecraft.player == null ? cameraBlockPos.getY() : minecraft.player.blockPosition().getY();
+        int guideY = Mth.clamp(guideYSource, minecraft.level.getMinBuildHeight(), minecraft.level.getMaxBuildHeight() - 1);
 
         for (int cx = minChunkX; cx <= maxChunkX; cx++) {
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {

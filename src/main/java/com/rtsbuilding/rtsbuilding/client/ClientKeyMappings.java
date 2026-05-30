@@ -90,9 +90,13 @@ public final class ClientKeyMappings {
             "key.rtsbuilding.camera_up",
             GLFW.GLFW_KEY_SPACE,
             "key.categories.rtsbuilding");
+    public static final KeyMapping CAMERA_UP_SECONDARY = new KeyMapping(
+            "key.rtsbuilding.camera_up_secondary",
+            GLFW.GLFW_KEY_UP,
+            "key.categories.rtsbuilding");
     public static final KeyMapping CAMERA_DOWN = new KeyMapping(
-            "key.rtsbuilding.camera_down",
-            GLFW.GLFW_KEY_LEFT_SHIFT,
+            "key.rtsbuilding.camera_down_arrow",
+            GLFW.GLFW_KEY_DOWN,
             "key.categories.rtsbuilding");
 
     private ClientKeyMappings() {
@@ -118,6 +122,7 @@ public final class ClientKeyMappings {
         event.register(CAMERA_PAN_DRAG);
         event.register(PICK_BLOCK);
         event.register(CAMERA_UP);
+        event.register(CAMERA_UP_SECONDARY);
         event.register(CAMERA_DOWN);
     }
 }
