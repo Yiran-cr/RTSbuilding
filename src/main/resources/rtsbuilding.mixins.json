@@ -2,6 +2,9 @@
   "required": true,
   "package": "com.rtsbuilding.rtsbuilding.mixin",
   "compatibilityLevel": "JAVA_21",
+  "client": [
+    "RtsPlayerInputMixin"
+  ],
   "mixins": [
     "compat.generatorgalore.GeneratorMenuMixin",
     "compat.ironfurnaces.IronFurnaceContainerMixin",
