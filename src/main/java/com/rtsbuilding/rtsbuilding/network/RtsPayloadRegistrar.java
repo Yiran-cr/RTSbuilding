@@ -87,6 +87,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handlePlace);
 
         registrar.playToServer(
+                C2SRtsPlaceBatchPayload.TYPE,
+                C2SRtsPlaceBatchPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handlePlaceBatch);
+
+        registrar.playToServer(
                 C2SRtsPlaceFluidPayload.TYPE,
                 C2SRtsPlaceFluidPayload.STREAM_CODEC,
                 RtsNetworkHandlers::handlePlaceFluid);
