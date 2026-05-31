@@ -38,6 +38,12 @@ public final class RtsClientPayloadBridge {
         }
     }
 
+    public static void handleDamageFeedback(S2CRtsDamageFeedbackPayload payload, IPayloadContext context) {
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            com.rtsbuilding.rtsbuilding.client.RtsClientNetworkHandlers.handleDamageFeedback(payload, context);
+        }
+    }
+
     public static void handleQuestDetectStatus(S2CRtsQuestDetectStatusPayload payload, IPayloadContext context) {
         if (FMLEnvironment.dist == Dist.CLIENT) {
             com.rtsbuilding.rtsbuilding.client.RtsClientNetworkHandlers.handleQuestDetectStatus(payload, context);

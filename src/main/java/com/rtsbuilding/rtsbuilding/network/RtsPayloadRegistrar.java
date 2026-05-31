@@ -243,6 +243,11 @@ public final class RtsPayloadRegistrar {
                 RtsClientPayloadBridge::handleCraftFeedback);
 
         registrar.playToClient(
+                S2CRtsDamageFeedbackPayload.TYPE,
+                S2CRtsDamageFeedbackPayload.STREAM_CODEC,
+                RtsClientPayloadBridge::handleDamageFeedback);
+
+        registrar.playToClient(
                 S2CRtsQuestDetectStatusPayload.TYPE,
                 S2CRtsQuestDetectStatusPayload.STREAM_CODEC,
                 RtsClientPayloadBridge::handleQuestDetectStatus);
