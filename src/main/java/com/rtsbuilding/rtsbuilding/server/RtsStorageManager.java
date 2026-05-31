@@ -23,6 +23,7 @@ import java.util.function.Supplier;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.compat.ftb.RtsFtbCompat;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
@@ -3728,8 +3729,21 @@ public final class RtsStorageManager {
             return;
         }
         int limit = Math.max(1, Math.min(Math.min(ULTIMINE_MAX_BLOCKS, progressionLimit), requestedLimit));
+
+        if (player.isCreative()) {
+            Deque<BlockPos> targets = collectUltimineTargets(player, pos, slot, ItemStack.EMPTY, limit, true);
+            if (targets.isEmpty()) {
+                stopActiveMining(player, session);
+                return;
+            }
+            stopActiveMining(player, session);
+            breakCreativeUltimineTargets(player, session, targets, slot);
+            requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            return;
+        }
+
         ItemStack linkedTool = extractLinkedMiningTool(player, session, toolItemId, toolPrototype);
-        Deque<BlockPos> targets = collectUltimineTargets(player, pos, slot, linkedTool, limit);
+        Deque<BlockPos> targets = collectUltimineTargets(player, pos, slot, linkedTool, limit, false);
         if (targets.isEmpty()) {
             refundLinkedMiningTool(player, session, linkedTool);
             stopActiveMining(player, session);
@@ -3750,42 +3764,28 @@ public final class RtsStorageManager {
     }
 
     private static Deque<BlockPos> collectUltimineTargets(ServerPlayer player, BlockPos seed, int toolSlot, ItemStack linkedTool, int limit) {
-        Deque<BlockPos> result = new ArrayDeque<>();
+        return collectUltimineTargets(player, seed, toolSlot, linkedTool, limit, player != null && player.isCreative());
+    }
+
+    private static Deque<BlockPos> collectUltimineTargets(ServerPlayer player, BlockPos seed, int toolSlot, ItemStack linkedTool, int limit, boolean creative) {
         if (!canAccessWorldTarget(player, seed)) {
-            return result;
+            return new ArrayDeque<>();
         }
 
         ServerLevel level = player.serverLevel();
-        BlockState seedState = level.getBlockState(seed);
-        if (!isUltimineCandidate(player, seed, seedState, seedState, toolSlot, linkedTool)) {
-            return result;
-        }
-
-        Set<BlockPos> visited = new HashSet<>();
-        Deque<BlockPos> frontier = new ArrayDeque<>();
-        frontier.add(seed.immutable());
-        visited.add(seed.immutable());
-
-        while (!frontier.isEmpty() && result.size() < limit) {
-            BlockPos current = frontier.removeFirst();
-            BlockState currentState = level.getBlockState(current);
-            if (!isUltimineCandidate(player, current, currentState, seedState, toolSlot, linkedTool)) {
-                continue;
-            }
-
-            result.add(current.immutable());
-            for (Direction direction : Direction.values()) {
-                BlockPos next = current.relative(direction);
-                if (visited.size() >= limit * 8) {
-                    break;
-                }
-                BlockPos immutableNext = next.immutable();
-                if (visited.add(immutableNext)) {
-                    frontier.addLast(immutableNext);
-                }
-            }
-        }
-        return result;
+        List<BlockPos> targets = RtsUltimineCollector.collect(
+                level,
+                seed,
+                limit,
+                (candidatePos, state, seedState) -> isUltimineCandidate(
+                        player,
+                        candidatePos,
+                        state,
+                        seedState,
+                        toolSlot,
+                        linkedTool,
+                        creative));
+        return new ArrayDeque<>(targets);
     }
 
     private static boolean isUltimineCandidate(
@@ -3794,14 +3794,31 @@ public final class RtsStorageManager {
             BlockState state,
             BlockState seedState,
             int toolSlot,
-            ItemStack linkedTool) {
-        if (state.isAir() || state.getBlock() != seedState.getBlock() || state.getDestroySpeed(player.serverLevel(), pos) < 0.0F) {
+            ItemStack linkedTool,
+            boolean creative) {
+        if (state.isAir() || state.getBlock() != seedState.getBlock()) {
             return false;
         }
         if (!canAccessWorldTarget(player, pos)) {
             return false;
         }
+        if (creative) {
+            return true;
+        }
+        if (state.getDestroySpeed(player.serverLevel(), pos) < 0.0F) {
+            return false;
+        }
         return computeRemoteDestroyStep(player, state, pos, toolSlot, linkedTool) > 0.0F;
+    }
+
+    private static void breakCreativeUltimineTargets(ServerPlayer player, Session session, Deque<BlockPos> targets, int toolSlot) {
+        while (!targets.isEmpty()) {
+            BlockPos target = targets.removeFirst();
+            if (!canAccessWorldTarget(player, target)) {
+                continue;
+            }
+            destroyMinedBlock(player, session, target, toolSlot);
+        }
     }
 
     private static void beginRemoteMining(ServerPlayer player, Session session, BlockPos pos, Direction face, int toolSlot) {

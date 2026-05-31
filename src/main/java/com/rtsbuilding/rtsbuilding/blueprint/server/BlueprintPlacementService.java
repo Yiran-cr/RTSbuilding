@@ -1,11 +1,12 @@
 package com.rtsbuilding.rtsbuilding.blueprint.server;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.rtsbuilding.rtsbuilding.Config;
+import com.rtsbuilding.rtsbuilding.blueprint.BlueprintReplaceRules;
+import com.rtsbuilding.rtsbuilding.blueprint.BlueprintTransform;
 import com.rtsbuilding.rtsbuilding.blueprint.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.blueprint.RtsBlueprintBlock;
 import com.rtsbuilding.rtsbuilding.blueprint.network.BlueprintNetworkHandlers;
@@ -21,18 +22,17 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 
 public final class BlueprintPlacementService {
-    private static final int MAX_BLOCKS = 8192;
     private static final int BLOCKS_PER_TICK = 64;
     private static final Map<UUID, PlacementJob> JOBS = new ConcurrentHashMap<>();
 
     private BlueprintPlacementService() {
     }
 
-    public static void queuePlacement(ServerPlayer player, RtsBlueprint blueprint, BlockPos anchor, byte rotationSteps) {
+    public static void queuePlacement(ServerPlayer player, RtsBlueprint blueprint, BlockPos anchor,
+            byte yRotationSteps, byte xRotationSteps, byte zRotationSteps) {
         if (player == null || blueprint == null || anchor == null) {
             return;
         }
@@ -44,19 +44,25 @@ public final class BlueprintPlacementService {
             send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.empty", "");
             return;
         }
-        if (blueprint.blockCount() > MAX_BLOCKS) {
+        int maxBlocks = Config.maxBlueprintBlocks();
+        if (blueprint.blockCount() > maxBlocks) {
             send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.too_many_blocks",
-                    Integer.toString(blueprint.blockCount()));
+                    blueprint.blockCount() + "/" + maxBlocks);
             return;
         }
 
-        PreflightResult preflight = preflight(player, blueprint, anchor, rotationSteps);
-        if (!preflight.ok()) {
-            send(player, S2CBlueprintStatusPayload.ERROR, preflight.messageKey(), preflight.detail());
-            return;
-        }
-
-        JOBS.put(player.getUUID(), new PlacementJob(blueprint, anchor.immutable(), normalizeRotationSteps(rotationSteps), 0));
+        JOBS.put(player.getUUID(), new PlacementJob(
+                blueprint,
+                anchor.immutable(),
+                BlueprintTransform.normalizeSteps(yRotationSteps),
+                BlueprintTransform.normalizeSteps(xRotationSteps),
+                BlueprintTransform.normalizeSteps(zRotationSteps),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0));
         send(player, S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.queued",
                 Integer.toString(blueprint.blockCount()));
     }
@@ -75,55 +81,74 @@ public final class BlueprintPlacementService {
         }
 
         ServerLevel level = player.serverLevel();
-        Rotation rotation = rotationForSteps(job.rotationSteps());
-        int placed = 0;
+        int processed = 0;
+        int placed = job.placedCount();
+        int skippedMissing = job.skippedMissing();
+        int skippedUnsupported = job.skippedUnsupported();
+        int skippedMissingBlocks = job.skippedMissingBlocks();
+        int skippedBlocked = job.skippedBlocked();
         int index = job.nextIndex();
-        while (index < job.blueprint().blocks().size() && placed < BLOCKS_PER_TICK) {
+        while (index < job.blueprint().blocks().size() && processed < BLOCKS_PER_TICK) {
             RtsBlueprintBlock block = job.blueprint().blocks().get(index);
-            BlockPos target = job.anchor().offset(rotate(block.relativePos(), job.rotationSteps()));
+            index++;
+            processed++;
+            if (block.isMissingBlock()) {
+                skippedMissingBlocks++;
+                continue;
+            }
+            BlockPos target = job.anchor().offset(BlueprintTransform.rotate(
+                    block.relativePos(),
+                    job.yRotationSteps(),
+                    job.xRotationSteps(),
+                    job.zRotationSteps()));
             if (!canStillPlace(player, level, target)) {
-                abort(player, "screen.rtsbuilding.blueprints.status.blocked", shortPos(target));
-                return;
+                skippedBlocked++;
+                continue;
             }
 
-            BlockState state = block.state().rotate(rotation);
+            BlockState state = BlueprintTransform.rotateState(
+                    block.state(),
+                    job.yRotationSteps(),
+                    job.xRotationSteps(),
+                    job.zRotationSteps());
             Item item = state.getBlock().asItem();
-            if (item == Items.AIR) {
-                abort(player, "screen.rtsbuilding.blueprints.status.unsupported", state.getBlock().getName().getString());
-                return;
-            }
-
-            ItemStack extracted = player.isCreative()
-                    ? new ItemStack(item)
-                    : RtsStorageManager.extractBlueprintMaterial(player, item, 1);
-            if (extracted.isEmpty()) {
-                abort(player, "screen.rtsbuilding.blueprints.status.missing", item.getDescription().getString());
-                return;
+            ItemStack extracted = ItemStack.EMPTY;
+            if (!player.isCreative()) {
+                if (item == Items.AIR) {
+                    skippedUnsupported++;
+                    continue;
+                }
+                extracted = RtsStorageManager.extractBlueprintMaterial(player, item, 1);
+                if (extracted.isEmpty()) {
+                    skippedMissing++;
+                    continue;
+                }
             }
 
             boolean placedBlock = level.setBlock(target, state, 3);
             if (!placedBlock) {
-                if (!player.isCreative()) {
+                if (!player.isCreative() && !extracted.isEmpty()) {
                     RtsStorageManager.refundBlueprintMaterial(player, extracted);
                 }
-                abort(player, "screen.rtsbuilding.blueprints.status.blocked", shortPos(target));
-                return;
+                skippedBlocked++;
+                continue;
             }
 
             ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(item);
             PlacedBlockTrackerData.get(level).mark(target);
-            RtsStorageManager.noteBlueprintBlockPlaced(player, target, itemId == null ? "" : itemId.toString());
-            index++;
+            if (item != Items.AIR) {
+                RtsStorageManager.noteBlueprintBlockPlaced(player, target, itemId == null ? "" : itemId.toString());
+            }
             placed++;
         }
 
         if (index >= job.blueprint().blocks().size()) {
             JOBS.remove(player.getUUID());
             RtsStorageManager.refreshBlueprintStoragePage(player);
-            send(player, S2CBlueprintStatusPayload.SUCCESS, "screen.rtsbuilding.blueprints.status.complete",
-                    Integer.toString(job.blueprint().blockCount()));
+            send(player, S2CBlueprintStatusPayload.SUCCESS, "screen.rtsbuilding.blueprints.status.complete_partial",
+                    completionSummary(placed, job.blueprint().blockCount(), skippedMissing, skippedUnsupported, skippedMissingBlocks, skippedBlocked));
         } else {
-            JOBS.put(player.getUUID(), job.withNextIndex(index));
+            JOBS.put(player.getUUID(), job.withProgress(index, placed, skippedMissing, skippedUnsupported, skippedMissingBlocks, skippedBlocked));
         }
     }
 
@@ -133,37 +158,6 @@ public final class BlueprintPlacementService {
         }
     }
 
-    private static PreflightResult preflight(ServerPlayer player, RtsBlueprint blueprint, BlockPos anchor, byte rotationSteps) {
-        ServerLevel level = player.serverLevel();
-        int steps = normalizeRotationSteps(rotationSteps);
-        Map<Item, Integer> required = new HashMap<>();
-        for (RtsBlueprintBlock block : blueprint.blocks()) {
-            BlockPos target = anchor.offset(rotate(block.relativePos(), steps));
-            if (!canStillPlace(player, level, target)) {
-                return PreflightResult.error("screen.rtsbuilding.blueprints.status.blocked", shortPos(target));
-            }
-            Item item = block.state().getBlock().asItem();
-            if (item == Items.AIR) {
-                return PreflightResult.error(
-                        "screen.rtsbuilding.blueprints.status.unsupported",
-                        block.state().getBlock().getName().getString());
-            }
-            required.merge(item, 1, Integer::sum);
-        }
-
-        if (!player.isCreative()) {
-            for (Map.Entry<Item, Integer> entry : required.entrySet()) {
-                long available = RtsStorageManager.countBlueprintMaterial(player, entry.getKey());
-                if (available < entry.getValue()) {
-                    return PreflightResult.error(
-                            "screen.rtsbuilding.blueprints.status.missing",
-                            entry.getKey().getDescription().getString() + " " + available + "/" + entry.getValue());
-                }
-            }
-        }
-        return PreflightResult.success();
-    }
-
     private static boolean canStillPlace(ServerPlayer player, ServerLevel level, BlockPos target) {
         if (!RtsStorageManager.canAccessBlueprintTarget(player, target)) {
             return false;
@@ -171,32 +165,7 @@ public final class BlueprintPlacementService {
         if (level.getBlockEntity(target) != null) {
             return false;
         }
-        return level.getBlockState(target).canBeReplaced();
-    }
-
-    private static int normalizeRotationSteps(byte steps) {
-        return Math.floorMod(steps, 4);
-    }
-
-    private static Rotation rotationForSteps(int steps) {
-        return switch (Math.floorMod(steps, 4)) {
-            case 1 -> Rotation.CLOCKWISE_90;
-            case 2 -> Rotation.CLOCKWISE_180;
-            case 3 -> Rotation.COUNTERCLOCKWISE_90;
-            default -> Rotation.NONE;
-        };
-    }
-
-    private static BlockPos rotate(BlockPos pos, int steps) {
-        int x = pos.getX();
-        int y = pos.getY();
-        int z = pos.getZ();
-        return switch (Math.floorMod(steps, 4)) {
-            case 1 -> new BlockPos(-z, y, x);
-            case 2 -> new BlockPos(-x, y, -z);
-            case 3 -> new BlockPos(z, y, -x);
-            default -> pos;
-        };
+        return BlueprintReplaceRules.canBlueprintReplace(level.getBlockState(target));
     }
 
     private static void abort(ServerPlayer player, String messageKey, String detail) {
@@ -213,19 +182,45 @@ public final class BlueprintPlacementService {
         return pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
     }
 
-    private record PlacementJob(RtsBlueprint blueprint, BlockPos anchor, int rotationSteps, int nextIndex) {
-        PlacementJob withNextIndex(int nextIndex) {
-            return new PlacementJob(this.blueprint, this.anchor, this.rotationSteps, nextIndex);
-        }
+    private static String completionSummary(int placed, int total, int skippedMissing, int skippedUnsupported,
+            int skippedMissingBlocks, int skippedBlocked) {
+        int skipped = Math.max(0, skippedMissing)
+                + Math.max(0, skippedUnsupported)
+                + Math.max(0, skippedMissingBlocks)
+                + Math.max(0, skippedBlocked);
+        return placed + "/" + total + " placed, " + skipped + " skipped"
+                + " (missing " + skippedMissing
+                + ", unsupported " + skippedUnsupported
+                + ", missing blocks " + skippedMissingBlocks
+                + ", blocked " + skippedBlocked + ")";
     }
 
-    private record PreflightResult(boolean ok, String messageKey, String detail) {
-        static PreflightResult success() {
-            return new PreflightResult(true, "", "");
-        }
-
-        static PreflightResult error(String messageKey, String detail) {
-            return new PreflightResult(false, messageKey, detail == null ? "" : detail);
+    private record PlacementJob(
+            RtsBlueprint blueprint,
+            BlockPos anchor,
+            int yRotationSteps,
+            int xRotationSteps,
+            int zRotationSteps,
+            int nextIndex,
+            int placedCount,
+            int skippedMissing,
+            int skippedUnsupported,
+            int skippedMissingBlocks,
+            int skippedBlocked) {
+        PlacementJob withProgress(int nextIndex, int placedCount, int skippedMissing, int skippedUnsupported,
+                int skippedMissingBlocks, int skippedBlocked) {
+            return new PlacementJob(
+                    this.blueprint,
+                    this.anchor,
+                    this.yRotationSteps,
+                    this.xRotationSteps,
+                    this.zRotationSteps,
+                    nextIndex,
+                    placedCount,
+                    skippedMissing,
+                    skippedUnsupported,
+                    skippedMissingBlocks,
+                    skippedBlocked);
         }
     }
 }

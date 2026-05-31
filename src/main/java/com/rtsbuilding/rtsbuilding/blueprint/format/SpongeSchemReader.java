@@ -17,12 +17,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.Vec3i;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.ByteArrayTag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,19 +51,27 @@ final class SpongeSchemReader {
         CompoundTag paletteTag = blocksRoot.getCompound("Palette");
         byte[] packed = readBlockData(blocksRoot);
         HolderLookup<Block> blockLookup = registryAccess.lookupOrThrow(Registries.BLOCK);
-        Map<Integer, BlockState> palette = readPalette(paletteTag, blockLookup);
+        Map<Integer, PaletteEntry> palette = readPalette(paletteTag, blockLookup);
 
         List<Integer> stateIds = decodeVarInts(packed, width * height * length);
         List<RtsBlueprintBlock> out = new ArrayList<>();
         int expected = width * height * length;
         for (int index = 0; index < expected && index < stateIds.size(); index++) {
-            BlockState state = palette.get(stateIds.get(index));
-            if (state == null || state.isAir() || state.is(Blocks.STRUCTURE_VOID)) {
+            PaletteEntry paletteEntry = palette.get(stateIds.get(index));
+            if (paletteEntry == null) {
                 continue;
             }
+            BlockState state = paletteEntry.state();
             int x = index % width;
             int z = (index / width) % length;
             int y = index / (width * length);
+            if (!paletteEntry.missingBlockId().isBlank()) {
+                out.add(RtsBlueprintBlock.missing(new BlockPos(x, y, z), paletteEntry.missingBlockId(), new CompoundTag()));
+                continue;
+            }
+            if (state == null || state.isAir() || state.is(Blocks.STRUCTURE_VOID)) {
+                continue;
+            }
             out.add(new RtsBlueprintBlock(new BlockPos(x, y, z), state, new CompoundTag()));
         }
 
@@ -91,18 +101,36 @@ final class SpongeSchemReader {
         return blocksRoot.getByteArray("Data");
     }
 
-    private static Map<Integer, BlockState> readPalette(CompoundTag paletteTag, HolderLookup<Block> blockLookup)
+    private static Map<Integer, PaletteEntry> readPalette(CompoundTag paletteTag, HolderLookup<Block> blockLookup)
             throws BlueprintParseException {
-        Map<Integer, BlockState> out = new HashMap<>();
+        Map<Integer, PaletteEntry> out = new HashMap<>();
         for (String key : paletteTag.getAllKeys()) {
+            String missingId = missingBlockId(key);
+            if (!missingId.isBlank()) {
+                out.put(paletteTag.getInt(key), new PaletteEntry(Blocks.AIR.defaultBlockState(), missingId));
+                continue;
+            }
             try {
                 BlockState state = BlockStateParser.parseForBlock(blockLookup, key, false).blockState();
-                out.put(paletteTag.getInt(key), state);
+                out.put(paletteTag.getInt(key), new PaletteEntry(state, ""));
             } catch (CommandSyntaxException ex) {
                 throw new BlueprintParseException("Unknown block state in schematic palette: " + key, ex);
             }
         }
         return out;
+    }
+
+    private static String missingBlockId(String stateKey) {
+        if (stateKey == null || stateKey.isBlank()) {
+            return "";
+        }
+        int propertyStart = stateKey.indexOf('[');
+        String blockId = propertyStart >= 0 ? stateKey.substring(0, propertyStart) : stateKey;
+        ResourceLocation id = ResourceLocation.tryParse(blockId);
+        if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
+            return blockId;
+        }
+        return "";
     }
 
     private static List<Integer> decodeVarInts(byte[] data, int maxEntries) throws BlueprintParseException {
@@ -136,5 +164,8 @@ final class SpongeSchemReader {
         String base = slash >= 0 ? fileName.substring(slash + 1) : fileName;
         int dot = base.lastIndexOf('.');
         return dot > 0 ? base.substring(0, dot) : base;
+    }
+
+    private record PaletteEntry(BlockState state, String missingBlockId) {
     }
 }

@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.Vec3i;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -20,6 +21,7 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -36,9 +38,13 @@ final class VanillaStructureNbtReader {
 
         HolderGetter<Block> blocks = registryAccess.lookupOrThrow(Registries.BLOCK);
         ListTag paletteTag = root.getList("palette", Tag.TAG_COMPOUND);
-        List<BlockState> palette = new ArrayList<>(paletteTag.size());
+        List<PaletteEntry> palette = new ArrayList<>(paletteTag.size());
         for (int i = 0; i < paletteTag.size(); i++) {
-            palette.add(NbtUtils.readBlockState(blocks, paletteTag.getCompound(i)));
+            CompoundTag paletteEntry = paletteTag.getCompound(i);
+            String missingId = missingBlockId(paletteEntry);
+            palette.add(missingId.isBlank()
+                    ? new PaletteEntry(NbtUtils.readBlockState(blocks, paletteEntry), "")
+                    : new PaletteEntry(Blocks.AIR.defaultBlockState(), missingId));
         }
 
         Vec3i size = readSize(root);
@@ -50,17 +56,34 @@ final class VanillaStructureNbtReader {
             if (stateIndex < 0 || stateIndex >= palette.size()) {
                 continue;
             }
-            BlockState state = palette.get(stateIndex);
-            if (state.isAir() || state.is(Blocks.STRUCTURE_VOID)) {
-                continue;
-            }
+            PaletteEntry paletteEntry = palette.get(stateIndex);
+            BlockState state = paletteEntry.state();
             BlockPos pos = readPos(blockTag);
             CompoundTag blockEntityTag = blockTag.contains("nbt", Tag.TAG_COMPOUND)
                     ? blockTag.getCompound("nbt").copy()
                     : new CompoundTag();
+            if (!paletteEntry.missingBlockId().isBlank()) {
+                out.add(RtsBlueprintBlock.missing(pos, paletteEntry.missingBlockId(), blockEntityTag));
+                continue;
+            }
+            if (state.isAir() || state.is(Blocks.STRUCTURE_VOID)) {
+                continue;
+            }
             out.add(new RtsBlueprintBlock(pos, state, blockEntityTag));
         }
         return RtsBlueprint.create(cleanName(fileName), fileName, BlueprintFormat.VANILLA_NBT, size, out);
+    }
+
+    private static String missingBlockId(CompoundTag paletteEntry) {
+        if (!paletteEntry.contains("Name", Tag.TAG_STRING)) {
+            return "";
+        }
+        String name = paletteEntry.getString("Name");
+        ResourceLocation id = ResourceLocation.tryParse(name);
+        if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
+            return name == null ? "" : name;
+        }
+        return "";
     }
 
     private static CompoundTag readCompressed(byte[] data, String fileName) throws BlueprintParseException {
@@ -98,5 +121,8 @@ final class VanillaStructureNbtReader {
         String base = slash >= 0 ? fileName.substring(slash + 1) : fileName;
         int dot = base.lastIndexOf('.');
         return dot > 0 ? base.substring(0, dot) : base;
+    }
+
+    private record PaletteEntry(BlockState state, String missingBlockId) {
     }
 }

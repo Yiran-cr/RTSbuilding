@@ -28,7 +28,9 @@ public final class RtsModConfigScreen extends Screen {
     private boolean shareWithTeams = Config.SHARE_SURVIVAL_PROGRESSION_WITH_TEAMS.getAsBoolean();
     private boolean blueprintsEnabled = Config.ENABLE_BLUEPRINTS.getAsBoolean();
     private String draftMaxRadius = Integer.toString(Config.maxActionRadiusBlocks());
+    private String draftMaxBlueprintBlocks = Integer.toString(Config.maxBlueprintBlocks());
     private EditBox maxRadiusBox;
+    private EditBox maxBlueprintBlocksBox;
     private int scroll;
 
     public RtsModConfigScreen(Screen parent) {
@@ -57,6 +59,7 @@ public final class RtsModConfigScreen extends Screen {
         clearWidgets();
         this.costBoxes.clear();
         this.maxRadiusBox = null;
+        this.maxBlueprintBlocksBox = null;
 
         int panelW = Math.min(520, this.width - 24);
         int x = (this.width - panelW) / 2;
@@ -94,15 +97,24 @@ public final class RtsModConfigScreen extends Screen {
         this.maxRadiusBox.setTextColorUneditable(0xFFB8C7D6);
         addRenderableWidget(this.maxRadiusBox);
 
+        int blueprintBlocksY = compact ? y + 132 : y + 106;
+        this.maxBlueprintBlocksBox = new EditBox(this.font, radiusBoxX, blueprintBlocksY, 86, 16,
+                Component.translatable("config.rtsbuilding.max_blueprint_blocks"));
+        this.maxBlueprintBlocksBox.setMaxLength(6);
+        this.maxBlueprintBlocksBox.setValue(this.draftMaxBlueprintBlocks);
+        this.maxBlueprintBlocksBox.setTextColor(0xFFFFFFFF);
+        this.maxBlueprintBlocksBox.setTextColorUneditable(0xFFB8C7D6);
+        addRenderableWidget(this.maxBlueprintBlocksBox);
+
         addRenderableWidget(Button.builder(Component.translatable("config.rtsbuilding.open_discord"), btn -> {
             Util.getPlatform().openUri(RtsCommunityLinks.DISCORD_INVITE);
-        }).bounds(x + 12, compact ? y + 210 : y + 158, buttonW, 20).build());
+        }).bounds(x + 12, compact ? y + 234 : y + 182, buttonW, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("config.rtsbuilding.copy_qq"), btn -> {
             if (this.minecraft != null) {
                 this.minecraft.keyboardHandler.setClipboard(RtsCommunityLinks.QQ_GROUP);
             }
             btn.setMessage(Component.translatable("config.rtsbuilding.copied_qq"));
-        }).bounds(compact ? x + 12 : x + 22 + buttonW, compact ? y + 234 : y + 158, buttonW, 20).build());
+        }).bounds(compact ? x + 12 : x + 22 + buttonW, compact ? y + 258 : y + 182, buttonW, 20).build());
 
         int listY = configListY(y, compact);
         int rows = visibleRows();
@@ -149,6 +161,7 @@ public final class RtsModConfigScreen extends Screen {
         int y = 18;
         boolean compact = panelW < 430;
         int radiusY = compact ? y + 112 : y + 86;
+        int blueprintBlocksY = compact ? y + 136 : y + 110;
         g.fill(x, y, x + panelW, this.height - 34, 0xEE101820);
         g.hLine(x, x + panelW, y, 0xFF6E8799);
         g.hLine(x, x + panelW, this.height - 34, 0xFF0D1218);
@@ -156,10 +169,12 @@ public final class RtsModConfigScreen extends Screen {
         g.drawString(this.font, Component.translatable("config.rtsbuilding.max_radius"), x + 10, radiusY, 0xF4F7FF);
         int hintX = x + Math.min(232, Math.max(180, panelW / 2));
         g.drawString(this.font, trim(Component.translatable("config.rtsbuilding.max_radius.hint").getString(), x + panelW - 12 - hintX), hintX, radiusY, 0xAFC2D4);
-        g.drawString(this.font, trim(Component.translatable("config.rtsbuilding.server_authority").getString(), panelW - 20), x + 10, compact ? y + 136 : y + 106, 0xAFC2D4);
-        g.drawString(this.font, Component.translatable("config.rtsbuilding.community"), x + 10, compact ? y + 152 : y + 122, 0xF4F7FF);
-        g.drawString(this.font, trim("Discord: " + RtsCommunityLinks.DISCORD_INVITE, panelW - 20), x + 10, compact ? y + 166 : y + 138, 0xAFC2D4);
-        g.drawString(this.font, trim("QQ: " + RtsCommunityLinks.QQ_GROUP, panelW - 20), x + 10, compact ? y + 178 : y + 150, 0xAFC2D4);
+        g.drawString(this.font, Component.translatable("config.rtsbuilding.max_blueprint_blocks"), x + 10, blueprintBlocksY, 0xF4F7FF);
+        g.drawString(this.font, trim(Component.translatable("config.rtsbuilding.max_blueprint_blocks.hint").getString(), x + panelW - 12 - hintX), hintX, blueprintBlocksY, 0xAFC2D4);
+        g.drawString(this.font, trim(Component.translatable("config.rtsbuilding.server_authority").getString(), panelW - 20), x + 10, compact ? y + 160 : y + 130, 0xAFC2D4);
+        g.drawString(this.font, Component.translatable("config.rtsbuilding.community"), x + 10, compact ? y + 176 : y + 146, 0xF4F7FF);
+        g.drawString(this.font, trim("Discord: " + RtsCommunityLinks.DISCORD_INVITE, panelW - 20), x + 10, compact ? y + 190 : y + 162, 0xAFC2D4);
+        g.drawString(this.font, trim("QQ: " + RtsCommunityLinks.QQ_GROUP, panelW - 20), x + 10, compact ? y + 202 : y + 174, 0xAFC2D4);
         g.drawString(this.font, Component.translatable("config.rtsbuilding.skill_costs"), x + 10, configListY(y, compact) - 16, 0xF4F7FF);
 
         int listY = configListY(y, compact);
@@ -206,7 +221,7 @@ public final class RtsModConfigScreen extends Screen {
     private int visibleRows() {
         int panelW = Math.min(520, this.width - 24);
         boolean compact = panelW < 430;
-        return Math.max(1, (this.height - (compact ? 298 : 248)) / 24);
+        return Math.max(1, (this.height - (compact ? 322 : 272)) / 24);
     }
 
     private int maxScroll() {
@@ -228,6 +243,7 @@ public final class RtsModConfigScreen extends Screen {
                     this.shareWithTeams,
                     parseMaxRadius(),
                     this.blueprintsEnabled,
+                    parseMaxBlueprintBlocks(),
                     costOverrides);
         } catch (RuntimeException ex) {
             if (this.minecraft != null && this.minecraft.player != null) {
@@ -243,6 +259,9 @@ public final class RtsModConfigScreen extends Screen {
         if (this.maxRadiusBox != null) {
             this.draftMaxRadius = this.maxRadiusBox.getValue();
         }
+        if (this.maxBlueprintBlocksBox != null) {
+            this.draftMaxBlueprintBlocks = this.maxBlueprintBlocksBox.getValue();
+        }
         for (int i = 0; i < this.costBoxes.size(); i++) {
             int nodeIndex = this.scroll + i;
             if (nodeIndex < this.nodes.size()) {
@@ -256,7 +275,7 @@ public final class RtsModConfigScreen extends Screen {
     }
 
     private int configListY(int y, boolean compact) {
-        return compact ? y + 274 : y + 202;
+        return compact ? y + 298 : y + 226;
     }
 
     private int parseMaxRadius() {
@@ -267,6 +286,17 @@ public final class RtsModConfigScreen extends Screen {
             return Mth.clamp(Integer.parseInt(this.draftMaxRadius.trim()), 48, 512);
         } catch (NumberFormatException ignored) {
             return Config.maxActionRadiusBlocks();
+        }
+    }
+
+    private int parseMaxBlueprintBlocks() {
+        if (this.maxBlueprintBlocksBox == null) {
+            return Config.maxBlueprintBlocks();
+        }
+        try {
+            return Mth.clamp(Integer.parseInt(this.draftMaxBlueprintBlocks.trim()), 1, 200000);
+        } catch (NumberFormatException ignored) {
+            return Config.maxBlueprintBlocks();
         }
     }
 }

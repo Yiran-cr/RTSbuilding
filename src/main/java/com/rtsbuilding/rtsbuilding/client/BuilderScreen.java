@@ -14,8 +14,10 @@ import java.util.Set;
 import org.lwjgl.glfw.GLFW;
 
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
+import com.rtsbuilding.rtsbuilding.blueprint.BlueprintReplaceRules;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsQuestDetectStatusPayload;
@@ -217,6 +219,8 @@ public final class BuilderScreen extends Screen {
     private int shapeFootprintNudgeA = 0;
     private int shapeFootprintNudgeB = 0;
     private double shapeCursorY = 0.0D;
+    private int lastMouseX = 0;
+    private int lastMouseY = 0;
     private ShapeFillMode shapeFillMode = ShapeFillMode.FILL;
     private int shapeRotateDegrees = 0;
     private boolean shapeWheelOpenedByAlt = false;
@@ -399,6 +403,41 @@ public final class BuilderScreen extends Screen {
             submitCraftQuantityDialogIfReady();
             return handled;
         }
+        if (BlueprintPanel.isNameDialogOpen()) {
+            return BlueprintPanel.mouseClickedNameDialog(mouseX, mouseY, button, this.width, this.height);
+        }
+        if (BlueprintPanel.isMaterialDialogOpen()) {
+            return BlueprintPanel.mouseClickedMaterialDialog(mouseX, mouseY, button, this.width, this.height);
+        }
+        if (BlueprintPanel.isCaptureModeActive()) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                stopActiveMining();
+                if (!BlueprintPanel.mouseClickedCaptureOverlay(mouseX, mouseY, this.width, this.height, TOP_H + 8)) {
+                    if (BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+                        BlockHitResult hit = pickBlockHit();
+                        if (hit != null
+                                && hit.getType() == HitResult.Type.BLOCK
+                                && BlueprintPanel.toggleCaptureBlockExclusion(hit.getBlockPos())) {
+                            return true;
+                        }
+                    }
+                    BlueprintPanel.cancelCaptureFromClick();
+                }
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                if (!BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+                    BlockHitResult hit = pickBlockHit();
+                    if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
+                        BlueprintPanel.acceptCapturePoint(hit.getBlockPos());
+                    }
+                    return true;
+                }
+                if (!BlueprintPanel.isCaptureSelectionComplete()) {
+                    return true;
+                }
+            }
+        }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
                 && this.ultimineLimitEditing
                 && !isInsideUltimineLimitInput(mouseX, mouseY)) {
@@ -487,6 +526,10 @@ public final class BuilderScreen extends Screen {
                     return true;
                 }
                 this.gearMenuOpen = false;
+            }
+            if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS
+                    && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, getBottomY())) {
+                return true;
             }
             if (handleQuickBuildPanelClick(mouseX, mouseY)) {
                 return true;
@@ -785,6 +828,7 @@ public final class BuilderScreen extends Screen {
 
     private boolean startMiningAt(double mouseX, double mouseY, int mouseButton, boolean keyboard) {
         if (this.pendingGuiBindSlot >= 0
+                || BlueprintPanel.isCaptureModeActive()
                 || !isWorldArea(mouseX, mouseY)
                 || this.controller.getMode() == BuilderMode.LINK_STORAGE
                 || this.controller.getMode() == BuilderMode.FUNNEL) {
@@ -825,6 +869,15 @@ public final class BuilderScreen extends Screen {
         if (this.pendingGuiBindSlot >= 0) {
             return true;
         }
+        if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
+            if (!BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+                BlockHitResult hit = pickBlockHit();
+                if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
+                    BlueprintPanel.acceptCapturePoint(hit.getBlockPos());
+                }
+            }
+            return true;
+        }
         if (isInsideBottomPanel(mouseX, mouseY)) {
             return handleBottomPanelRightClick(mouseX, mouseY);
         }
@@ -861,11 +914,15 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.hasSelectedBlueprint()) {
-            InteractionTarget blueprintTarget = pickInteractionTarget(false);
-            if (blueprintTarget != null && blueprintTarget.blockHit() != null) {
-                BlockPos anchor = resolveBlueprintAnchor(blueprintTarget.blockHit());
+            if (BlueprintPanel.hasPinnedPreview()) {
+                BlueprintPanel.confirmPinnedPreview();
+                return true;
+            }
+            BlockHitResult blueprintHit = pickBlueprintPlacementHit();
+            if (blueprintHit != null) {
+                BlockPos anchor = resolveBlueprintAnchor(blueprintHit);
                 if (anchor != null) {
-                    BlueprintPanel.placeSelected(anchor, currentBlueprintRotationSteps());
+                    BlueprintPanel.pinSelected(anchor);
                 }
             }
             return true;
@@ -961,13 +1018,17 @@ public final class BuilderScreen extends Screen {
             return null;
         }
         BlockPos clicked = hit.getBlockPos();
-        return this.minecraft.level.getBlockState(clicked).canBeReplaced()
+        return BlueprintReplaceRules.canBlueprintReplace(this.minecraft.level.getBlockState(clicked))
                 ? clicked
                 : clicked.relative(hit.getDirection());
     }
 
-    private int currentBlueprintRotationSteps() {
-        return Math.floorMod((this.shapeRotateDegrees + 45) / 90, 4);
+    private BlockHitResult pickBlueprintPlacementHit() {
+        InteractionTarget target = pickInteractionTarget(false);
+        if (target != null && target.blockHit() != null) {
+            return target.blockHit();
+        }
+        return tryCreateBlueprintAirHit();
     }
 
     private boolean tryPickHoveredBlockForPlacement() {
@@ -1015,6 +1076,12 @@ public final class BuilderScreen extends Screen {
         }
         if (this.craftQuantityDialog.isOpen()) {
             return this.craftQuantityDialog.mouseScrolled(scrollY);
+        }
+        if (BlueprintPanel.isNameDialogOpen()) {
+            return true;
+        }
+        if (BlueprintPanel.isMaterialDialogOpen()) {
+            return BlueprintPanel.mouseScrolledMaterialDialog(scrollY, this.controller, this.width, this.height);
         }
 
         if (this.gearMenuOpen && isInsideGearMenu(mouseX, mouseY)) {
@@ -1093,6 +1160,15 @@ public final class BuilderScreen extends Screen {
             boolean handled = this.craftQuantityDialog.keyPressed(keyCode, scanCode, modifiers);
             submitCraftQuantityDialogIfReady();
             return handled;
+        }
+        if (BlueprintPanel.keyPressedNameDialog(keyCode)) {
+            return true;
+        }
+        if (BlueprintPanel.keyPressedMaterialDialog(keyCode)) {
+            return true;
+        }
+        if (BlueprintPanel.isCaptureModeActive() && BlueprintPanel.keyPressed(keyCode)) {
+            return true;
         }
         if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.keyPressed(keyCode)) {
             return true;
@@ -1378,6 +1454,9 @@ public final class BuilderScreen extends Screen {
         if (this.craftQuantityDialog.isOpen()) {
             return this.craftQuantityDialog.charTyped(codePoint, modifiers);
         }
+        if (BlueprintPanel.charTypedNameDialog(codePoint)) {
+            return true;
+        }
         if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.charTyped(codePoint)) {
             return true;
         }
@@ -1403,6 +1482,8 @@ public final class BuilderScreen extends Screen {
         if (!this.fixedRtsScaleRenderPass && renderWithFixedRtsGuiScale(guiGraphics, mouseX, mouseY, partialTick)) {
             return;
         }
+        this.lastMouseX = mouseX;
+        this.lastMouseY = mouseY;
         this.shapeCursorY = mouseY;
         this.hoveredEntry = -1;
         this.hoveredRecentEntry = -1;
@@ -1428,12 +1509,23 @@ public final class BuilderScreen extends Screen {
         renderFunnelBufferPanel(guiGraphics, mouseX, mouseY);
         renderQuestDetectPopup(guiGraphics);
         renderStorageScanPopup(guiGraphics);
+        if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
+            BlockHitResult hit = isWorldArea(mouseX, mouseY) ? pickBlockHit() : null;
+            BlueprintPanel.updateCaptureHoverPoint(hit == null ? null : hit.getBlockPos());
+        }
+        BlueprintPanel.renderCaptureOverlay(guiGraphics, this.font, this.width, this.height, mouseX, mouseY, TOP_H + 8);
+        if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS) {
+            BlueprintPanel.renderPlacementHud(guiGraphics, this.font, this.controller,
+                    this.width, this.height, mouseX, mouseY, TOP_H + 8, getBottomY());
+        }
 
         boolean modalOpen = this.gearMenuOpen
                 || this.guideOpen
                 || this.interactionWheelOpen
                 || this.shapeWheelOpen
-                || this.craftQuantityDialog.isOpen();
+                || this.craftQuantityDialog.isOpen()
+                || BlueprintPanel.isNameDialogOpen()
+                || BlueprintPanel.isMaterialDialogOpen();
         boolean placementSelectionActive = this.controller.hasSelectedItem() || this.controller.hasSelectedFluid();
         if (!modalOpen) {
             if (!placementSelectionActive
@@ -1535,6 +1627,17 @@ public final class BuilderScreen extends Screen {
 
         if (this.guideOpen) {
             renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 40.0F, () -> renderGuidePanel(guiGraphics));
+        }
+
+        if (BlueprintPanel.isMaterialDialogOpen()) {
+            renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 50.0F,
+                    () -> BlueprintPanel.renderMaterialDialog(guiGraphics, this.font, this.controller,
+                            this.width, this.height, mouseX, mouseY));
+        }
+
+        if (BlueprintPanel.isNameDialogOpen()) {
+            renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 55.0F,
+                    () -> BlueprintPanel.renderNameDialog(guiGraphics, this.font, this.width, this.height, mouseX, mouseY));
         }
 
         if (this.craftQuantityDialog.isOpen()) {
@@ -4961,6 +5064,33 @@ public final class BuilderScreen extends Screen {
         return new ShapeGhostPreview(blocks, ready);
     }
 
+    public BlueprintGhostPreview getBlueprintGhostPreview() {
+        if (this.bottomPanelTab != BottomPanelTab.BLUEPRINTS
+                || BlueprintPanel.isCaptureModeActive()
+                || !BlueprintPanel.hasSelectedBlueprint()) {
+            return BlueprintGhostPreview.EMPTY;
+        }
+        BlockPos anchor = BlueprintPanel.getPinnedAnchor();
+        if (anchor == null) {
+            if (!isWorldArea(this.lastMouseX, this.lastMouseY)) {
+                return BlueprintGhostPreview.EMPTY;
+            }
+            BlockHitResult hit = pickBlueprintPlacementHit();
+            if (hit == null) {
+                return BlueprintGhostPreview.EMPTY;
+            }
+            anchor = resolveBlueprintAnchor(hit);
+        }
+        if (anchor == null) {
+            return BlueprintGhostPreview.EMPTY;
+        }
+        var preview = BlueprintPanel.createGhostPreview(anchor, BlueprintPanel.getYRotationSteps(), this.controller);
+        if (preview.blocks().isEmpty()) {
+            return BlueprintGhostPreview.EMPTY;
+        }
+        return new BlueprintGhostPreview(preview.blocks(), preview.materialsReady(), preview.truncated());
+    }
+
     private List<BlockPos> collectUltiminePreviewBlocks() {
         if (this.minecraft == null || this.minecraft.level == null) {
             return List.of();
@@ -4978,32 +5108,15 @@ public final class BuilderScreen extends Screen {
             return List.of();
         }
 
+        boolean creative = this.minecraft.player != null && this.minecraft.player.isCreative();
         int limit = clampUltimineLimit(this.ultimineLimit);
-        List<BlockPos> result = new ArrayList<>();
-        Set<BlockPos> visited = new HashSet<>();
-        Deque<BlockPos> frontier = new ArrayDeque<>();
-        BlockPos immutableSeed = seed.immutable();
-        visited.add(immutableSeed);
-        frontier.addLast(immutableSeed);
-
-        while (!frontier.isEmpty() && result.size() < limit) {
-            BlockPos current = frontier.removeFirst();
-            BlockState state = this.minecraft.level.getBlockState(current);
-            if (state.isAir() || state.getBlock() != seedState.getBlock()) {
-                continue;
-            }
-            result.add(current.immutable());
-            for (Direction direction : Direction.values()) {
-                if (visited.size() >= limit * 8) {
-                    break;
-                }
-                BlockPos next = current.relative(direction).immutable();
-                if (visited.add(next)) {
-                    frontier.addLast(next);
-                }
-            }
-        }
-        return result;
+        return RtsUltimineCollector.collect(
+                this.minecraft.level,
+                seed,
+                limit,
+                (pos, state, originalState) -> !state.isAir()
+                        && state.getBlock() == originalState.getBlock()
+                        && (creative || state.getDestroySpeed(this.minecraft.level, pos) >= 0.0F));
     }
 
     private ShapeBuildInput resolveCurrentShapeBuildInput(BlockHitResult cursorHit, boolean requireReady) {
@@ -6882,6 +6995,25 @@ public final class BuilderScreen extends Screen {
         return new BlockHitResult(hitVec, face, BlockPos.containing(hitVec), false);
     }
 
+    private BlockHitResult tryCreateBlueprintAirHit() {
+        if (this.minecraft == null || this.minecraft.level == null || this.minecraft.player == null
+                || this.minecraft.getCameraEntity() == null) {
+            return null;
+        }
+        Vec3 camPos = this.minecraft.gameRenderer.getMainCamera().getPosition();
+        Vec3 dir = computeCursorRayDirection();
+        if (Math.abs(dir.y) < 1.0E-5D) {
+            return null;
+        }
+        double planeY = this.minecraft.player.blockPosition().getY();
+        double t = (planeY - camPos.y) / dir.y;
+        if (t <= 0.0D || t > 128.0D) {
+            return null;
+        }
+        Vec3 hitVec = camPos.add(dir.scale(t));
+        return new BlockHitResult(hitVec, Direction.UP, BlockPos.containing(hitVec), false);
+    }
+
     private Direction resolveAirShapeFace(Vec3 dir) {
         if (this.shapeBuildSession != null && this.shapeBuildSession.planeFace() != null) {
             return this.shapeBuildSession.planeFace();
@@ -7287,6 +7419,10 @@ public final class BuilderScreen extends Screen {
 
     public record ShapeGhostPreview(List<BlockPos> blocks, boolean readyConfirm) {
         public static final ShapeGhostPreview EMPTY = new ShapeGhostPreview(List.of(), false);
+    }
+
+    public record BlueprintGhostPreview(List<BlueprintPanel.BlueprintGhostBlock> blocks, boolean materialsReady, boolean truncated) {
+        public static final BlueprintGhostPreview EMPTY = new BlueprintGhostPreview(List.of(), false, false);
     }
 
     private record InteractionTarget(

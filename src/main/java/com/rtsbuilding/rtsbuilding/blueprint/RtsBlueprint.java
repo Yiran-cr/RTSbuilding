@@ -26,6 +26,9 @@ public record RtsBlueprint(
             List<RtsBlueprintBlock> blocks) {
         Map<ResourceLocation, Integer> requirements = new LinkedHashMap<>();
         for (RtsBlueprintBlock block : blocks) {
+            if (block.isMissingBlock()) {
+                continue;
+            }
             Item item = block.state().getBlock().asItem();
             if (item == Items.AIR) {
                 continue;

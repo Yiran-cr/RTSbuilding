@@ -33,7 +33,13 @@ public final class BlueprintNetworkHandlers {
             }
             try {
                 RtsBlueprint blueprint = BlueprintReaders.parse(payload.data(), payload.fileName(), player.registryAccess());
-                BlueprintPlacementService.queuePlacement(player, blueprint, payload.anchor(), payload.rotationSteps());
+                BlueprintPlacementService.queuePlacement(
+                        player,
+                        blueprint,
+                        payload.anchor(),
+                        payload.yRotationSteps(),
+                        payload.xRotationSteps(),
+                        payload.zRotationSteps());
             } catch (BlueprintParseException ex) {
                 send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.parse_failed", ex.getMessage());
             }

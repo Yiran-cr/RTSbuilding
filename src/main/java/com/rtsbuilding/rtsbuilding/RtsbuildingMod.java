@@ -74,6 +74,8 @@ public class RtsbuildingMod {
                     .sized(0.1F, 0.1F)
                     .clientTrackingRange(128)
                     .updateInterval(1)
+                    .noSave()
+                    .noSummon()
                     .build(ResourceLocation.fromNamespaceAndPath(MODID, "rts_camera").toString()));
 
     public RtsbuildingMod(IEventBus modEventBus, ModContainer modContainer) {
@@ -120,6 +122,7 @@ public class RtsbuildingMod {
         @SubscribeEvent
         static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                RtsCameraManager.cleanupOrphanCameras(serverPlayer.getServer());
                 RtsProgressionManager.onPlayerLogin(serverPlayer);
             }
         }
@@ -127,6 +130,7 @@ public class RtsbuildingMod {
         @SubscribeEvent
         static void onServerStarted(ServerStartedEvent event) {
             RtsStorageManager.warmCreativeTabCaches(event.getServer());
+            RtsCameraManager.cleanupOrphanCameras(event.getServer());
         }
 
         @SubscribeEvent
