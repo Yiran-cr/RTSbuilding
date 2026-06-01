@@ -540,7 +540,7 @@ public final class BuilderScreen extends Screen {
                 this.gearMenuOpen = false;
             }
             if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS
-                    && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, getBottomY())) {
+                    && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, getBottomY(), this.controller)) {
                 return true;
             }
             if (handleQuickBuildPanelClick(mouseX, mouseY)) {
@@ -1260,10 +1260,10 @@ public final class BuilderScreen extends Screen {
         if (BlueprintPanel.keyPressedMaterialDialog(keyCode)) {
             return true;
         }
-        if (BlueprintPanel.isCaptureModeActive() && BlueprintPanel.keyPressed(keyCode)) {
+        if (BlueprintPanel.isCaptureModeActive() && BlueprintPanel.keyPressed(keyCode, this.controller)) {
             return true;
         }
-        if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.keyPressed(keyCode)) {
+        if (this.bottomPanelTab == BottomPanelTab.BLUEPRINTS && BlueprintPanel.keyPressed(keyCode, this.controller)) {
             return true;
         }
 
