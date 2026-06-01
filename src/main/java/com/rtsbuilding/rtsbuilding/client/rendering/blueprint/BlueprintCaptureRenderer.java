@@ -17,23 +17,23 @@ public final class BlueprintCaptureRenderer {
     private static final int CAPTURE_BLOCK_HIGHLIGHT_LIMIT = 8192;
     // 排除方块高亮的最大数量限制
     private static final int CAPTURE_EXCLUDED_HIGHLIGHT_LIMIT = 1024;
-    
+
     // 优化：提取颜色常量，便于统一调整
     private static final float CAPTURE_FILL_R = 0.12F;
     private static final float CAPTURE_FILL_G = 0.46F;
     private static final float CAPTURE_FILL_B = 0.95F;
     private static final float CAPTURE_FILL_A = 0.06F;
-    
+
     private static final float INCLUDED_BLOCK_R = 0.12F;
     private static final float INCLUDED_BLOCK_G = 0.56F;
     private static final float INCLUDED_BLOCK_B = 1.0F;
     private static final float INCLUDED_BLOCK_A = 0.11F;
-    
+
     private static final float EXCLUDED_BLOCK_R = 1.0F;
     private static final float EXCLUDED_BLOCK_G = 0.36F;
     private static final float EXCLUDED_BLOCK_B = 0.12F;
     private static final float EXCLUDED_BLOCK_A = 0.95F;
-    
+
     private static final float BOUNDARY_BOX_R = 0.35F;
     private static final float BOUNDARY_BOX_G = 0.78F;
     private static final float BOUNDARY_BOX_B = 1.0F;
@@ -47,7 +47,7 @@ public final class BlueprintCaptureRenderer {
 
     /**
      * 渲染蓝图捕获选择框和高亮
-     * 
+     *
      * @param poseStack 姿势栈，用于坐标变换
      * @param lineBuffer 线条缓冲区
      * @param fillBuffer 填充缓冲区

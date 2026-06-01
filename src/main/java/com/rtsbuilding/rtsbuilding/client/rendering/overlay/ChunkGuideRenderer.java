@@ -25,7 +25,7 @@ public final class ChunkGuideRenderer {
 
     /**
      * 渲染区块引导网格
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param cameraPosition 相机位置
      * @param poseStack 姿势栈，用于坐标变换
@@ -67,7 +67,7 @@ public final class ChunkGuideRenderer {
 
     /**
      * 渲染单个区块的边缘高亮
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param poseStack 姿势栈
      * @param fillBuffer 填充缓冲区
@@ -113,7 +113,7 @@ public final class ChunkGuideRenderer {
 
     /**
      * 渲染单个单元格的引导高亮（填充+边框）
-     * 
+     *
      * @param poseStack 姿势栈
      * @param fillBuffer 填充缓冲区
      * @param lineBuffer 线条缓冲区
@@ -162,7 +162,7 @@ public final class ChunkGuideRenderer {
     /**
      * 根据区块坐标生成棋盘格颜色
      * 偶数区块使用青蓝色，奇数区块使用金黄色
-     * 
+     *
      * @param chunkX 区块X坐标
      * @param chunkZ 区块Z坐标
      * @return 颜色配置

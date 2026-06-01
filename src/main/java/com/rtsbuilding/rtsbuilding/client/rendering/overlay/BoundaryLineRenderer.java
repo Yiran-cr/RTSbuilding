@@ -19,7 +19,7 @@ public final class BoundaryLineRenderer {
 
     /**
      * 绘制红色边界线（在锚点Y高度的正方形边框）
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param poseStack 姿势栈，用于坐标变换
      * @param lineBuffer 线条缓冲区

@@ -81,7 +81,7 @@ public final class RtsVisualOverlayRenderer {
      * 使用POSITION_TEX_COLOR格式，支持贴图渲染
      */
     private static final ResourceLocation WORLD_BORDER_TEXTURE = ResourceLocation.withDefaultNamespace("textures/misc/forcefield.png");
-    
+
     private static final RenderType BARRIER_BOUNDARY = RenderType.create(
             "rtsbuilding_barrier_boundary",
             DefaultVertexFormat.POSITION_TEX_COLOR,
@@ -114,7 +114,7 @@ public final class RtsVisualOverlayRenderer {
     /**
      * 渲染等级事件监听器
      * 在半透明方块渲染完成后执行，确保RTS视觉效果显示在最上层
-     * 
+     *
      * @param event 渲染等级事件
      */
     @SubscribeEvent
@@ -196,7 +196,7 @@ public final class RtsVisualOverlayRenderer {
 
     /**
      * 为指定渲染类型创建缓冲区构建器
-     * 
+     *
      * @param renderType 渲染类型
      * @param backing 后备字节缓冲区
      * @return 配置好的BufferBuilder实例
@@ -207,7 +207,7 @@ public final class RtsVisualOverlayRenderer {
 
     /**
      * 绘制并释放缓冲区（标准深度测试）
-     * 
+     *
      * @param renderType 渲染类型
      * @param buffer 待绘制的缓冲区
      */
@@ -221,7 +221,7 @@ public final class RtsVisualOverlayRenderer {
     /**
      * 绘制并释放缓冲区（禁用深度测试，用于透视效果）
      * 渲染后恢复深度测试状态
-     * 
+     *
      * @param renderType 渲染类型
      * @param buffer 待绘制的缓冲区
      */

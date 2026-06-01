@@ -27,7 +27,7 @@ public final class BlueprintGhostRenderer {
 
     /**
      * 渲染蓝图的幽灵预览
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param poseStack 姿势栈，用于坐标变换
      * @param lineBuffer 线条缓冲区

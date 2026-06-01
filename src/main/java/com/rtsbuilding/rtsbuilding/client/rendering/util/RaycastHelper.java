@@ -20,7 +20,7 @@ public final class RaycastHelper {
 
     /**
      * 从相机位置向鼠标方向发射射线，检测命中的方块
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param camPos 相机起始位置
      * @param to 射线终点位置
@@ -45,7 +45,7 @@ public final class RaycastHelper {
 
     /**
      * 从相机位置向鼠标方向发射射线，检测命中的实体
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param camPos 相机起始位置
      * @param to 射线终点位置
@@ -80,7 +80,7 @@ public final class RaycastHelper {
     /**
      * 计算鼠标光标对应的射线方向向量
      * 考虑FOV、窗口尺寸、相机朝向等因素
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @return 归一化的射线方向向量
      */

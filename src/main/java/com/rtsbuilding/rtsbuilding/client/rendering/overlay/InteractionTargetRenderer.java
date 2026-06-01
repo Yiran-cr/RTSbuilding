@@ -26,7 +26,7 @@ public final class InteractionTargetRenderer {
 
     /**
      * 渲染当前鼠标悬停的交互目标（方块或实体）
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param controller RTS控制器
      * @param poseStack 姿势栈，用于坐标变换
@@ -69,7 +69,7 @@ public final class InteractionTargetRenderer {
 
     /**
      * 渲染实体高亮框（绿色）
-     * 
+     *
      * @param poseStack 姿势栈
      * @param lineBuffer 线条缓冲区
      * @param entity 目标实体
@@ -87,7 +87,7 @@ public final class InteractionTargetRenderer {
     /**
      * 渲染方块高亮（黄色）
      * 根据方块状态选择合适的渲染方式
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param poseStack 姿势栈
      * @param lineBuffer 线条缓冲区

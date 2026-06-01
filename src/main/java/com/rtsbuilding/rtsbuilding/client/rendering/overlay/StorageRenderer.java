@@ -22,7 +22,7 @@ public final class StorageRenderer {
 
     /**
      * 渲染所有已链接的储存方块高亮
-     * 
+     *
      * @param minecraft Minecraft客户端实例
      * @param controller RTS控制器，提供储存位置列表
      * @param poseStack 姿势栈，用于坐标变换
