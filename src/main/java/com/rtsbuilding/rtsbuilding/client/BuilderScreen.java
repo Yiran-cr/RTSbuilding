@@ -129,6 +129,10 @@ public final class BuilderScreen extends Screen {
     private double activeRtsGuiRenderScale = 1.0D;
     /** The user-configured fixed RTS GUI scale (independent of Minecraft's native GUI scale). */
     private double fixedRtsGuiScale = DEFAULT_RTS_GUI_SCALE;
+    /** Stable hover anchor above the left "RTS" label; keeps item tooltips from chasing the cursor. */
+    private static final int LEFT_TOOLTIP_X_OFFSET = 8;
+    private static final int LEFT_TOOLTIP_Y_OFFSET = 24;
+    private static final int LEFT_TOOLTIP_DETAIL_Y_OFFSET = 18;
     /** Last recorded mouse X position, updated each render frame for input consistency. */
     private int lastMouseX = 0;
     /** Last recorded mouse Y position, updated each render frame for input consistency. */
@@ -1187,16 +1191,16 @@ public final class BuilderScreen extends Screen {
                     && this.bottomPanel.hoveredEntry >= 0
                     && this.bottomPanel.hoveredEntry < this.controller.getStorageEntries().size()) {
                 var entry = this.controller.getStorageEntries().get(this.bottomPanel.hoveredEntry);
-                guiGraphics.renderTooltip(this.font, entry.stack(), mouseX, mouseY);
+                renderLeftDockedTooltip(guiGraphics, entry.stack());
             }
             if (!placementSelectionActive
                     && this.bottomPanel.hoveredRecentEntry >= 0
                     && this.bottomPanel.hoveredRecentEntry < this.controller.getRecentEntries().size()) {
                 var entry = this.controller.getRecentEntries().get(this.bottomPanel.hoveredRecentEntry);
                 if (!entry.preview().isEmpty()) {
-                    guiGraphics.renderTooltip(this.font, entry.preview(), mouseX, mouseY);
+                    renderLeftDockedTooltip(guiGraphics, entry.preview());
                 } else {
-                    guiGraphics.renderTooltip(this.font, Component.literal(entry.label()), mouseX, mouseY);
+                    renderLeftDockedTooltip(guiGraphics, Component.literal(entry.label()));
                 }
             }
             if (!placementSelectionActive
@@ -1204,45 +1208,43 @@ public final class BuilderScreen extends Screen {
                     && this.bottomPanel.hoveredFluidEntry < this.controller.getFluidEntries().size()) {
                 var fluid = this.controller.getFluidEntries().get(this.bottomPanel.hoveredFluidEntry);
                 if (!fluid.preview().isEmpty()) {
-                    guiGraphics.renderTooltip(this.font, fluid.preview(), mouseX, mouseY);
+                    renderLeftDockedTooltip(guiGraphics, fluid.preview());
                 } else {
-                    guiGraphics.renderTooltip(this.font, Component.literal(fluid.label()), mouseX, mouseY);
+                    renderLeftDockedTooltip(guiGraphics, Component.literal(fluid.label()));
                 }
             }
             if (this.bottomPanel.hoveredCraftableEntry >= 0 && this.bottomPanel.hoveredCraftableEntry < this.controller.getCraftableEntries().size()) {
                 var entry = this.controller.getCraftableEntries().get(this.bottomPanel.hoveredCraftableEntry);
-                guiGraphics.renderTooltip(this.font, entry.stack(), mouseX, mouseY);
+                renderLeftDockedTooltip(guiGraphics, entry.stack());
                 String detail = entry.craftable()
                         ? text("screen.rtsbuilding.tooltip.craft_choose")
                         : entry.missingSummary();
                 if (detail != null && !detail.isBlank()) {
-                    guiGraphics.drawString(this.font, detail, mouseX + 10, mouseY + 18, entry.craftable() ? 0xFFAEE8AE : 0xFFFFB0B0);
+                    renderLeftDockedTooltipDetail(guiGraphics, detail, entry.craftable() ? 0xFFAEE8AE : 0xFFFFB0B0);
                 }
             }
             if (this.funnelBufferPanel.getHoveredEntry() >= 0 && this.funnelBufferPanel.getHoveredEntry() < this.controller.getFunnelBufferEntries().size()) {
                 var entry = this.controller.getFunnelBufferEntries().get(this.funnelBufferPanel.getHoveredEntry());
-                guiGraphics.renderTooltip(this.font, entry.stack(), mouseX, mouseY);
-                guiGraphics.drawString(this.font, text("screen.rtsbuilding.tooltip.buffered", entry.count()), mouseX + 10, mouseY + 18, 0xFFD8B8);
+                renderLeftDockedTooltip(guiGraphics, entry.stack());
+                renderLeftDockedTooltipDetail(guiGraphics, text("screen.rtsbuilding.tooltip.buffered", entry.count()), 0xFFD8B8);
             }
             if (this.bottomPanel.hoveredGuiBindingSlot >= 0 && this.bottomPanel.hoveredGuiBindingSlot < this.controller.getGuiBindingCount()) {
                 String detail = this.controller.hasGuiBinding(this.bottomPanel.hoveredGuiBindingSlot)
                         ? this.controller.getGuiBindingLabel(this.bottomPanel.hoveredGuiBindingSlot)
                         : text("screen.rtsbuilding.tooltip.gui_empty");
-                guiGraphics.renderTooltip(this.font, Component.literal(detail), mouseX, mouseY);
-                guiGraphics.drawString(
-                        this.font,
+                renderLeftDockedTooltip(guiGraphics, Component.literal(detail));
+                renderLeftDockedTooltipDetail(
+                        guiGraphics,
                         this.pendingGuiBindSlot == this.bottomPanel.hoveredGuiBindingSlot
                                 ? text("screen.rtsbuilding.tooltip.gui_cancel_bind")
                                 : (this.controller.hasGuiBinding(this.bottomPanel.hoveredGuiBindingSlot)
                                         ? text("screen.rtsbuilding.tooltip.gui_bound")
                                         : text("screen.rtsbuilding.tooltip.gui_unbound")),
-                        mouseX + 10,
-                        mouseY + 18,
                         0xFFCFE3F7);
             }
             if (this.bottomPanel.hoveredEmptyHandSlot) {
-                guiGraphics.renderTooltip(this.font, Component.translatable("screen.rtsbuilding.tooltip.empty_hand"), mouseX, mouseY);
-                guiGraphics.drawString(this.font, text("screen.rtsbuilding.tooltip.empty_hand_detail"), mouseX + 10, mouseY + 18, 0xFFD8B8);
+                renderLeftDockedTooltip(guiGraphics, Component.translatable("screen.rtsbuilding.tooltip.empty_hand"));
+                renderLeftDockedTooltipDetail(guiGraphics, text("screen.rtsbuilding.tooltip.empty_hand_detail"), 0xFFD8B8);
             }
             renderDiscoverabilityTooltips(guiGraphics, mouseX, mouseY);
             boolean funnelCursor = shouldRenderFunnelCursor();
@@ -2192,6 +2194,34 @@ public final class BuilderScreen extends Screen {
     /** Translates the given i18n key and formats with the provided arguments. */
     public String text(String key, Object... args) {
         return Component.translatable(key, args).getString();
+    }
+
+    private void renderLeftDockedTooltip(GuiGraphics g, ItemStack stack) {
+        int x = leftTooltipAnchorX();
+        int y = leftTooltipAnchorY();
+        g.renderTooltip(this.font, stack, x, y);
+    }
+
+    private void renderLeftDockedTooltip(GuiGraphics g, Component text) {
+        int x = leftTooltipAnchorX();
+        int y = leftTooltipAnchorY();
+        g.renderTooltip(this.font, text, x, y);
+    }
+
+    private void renderLeftDockedTooltipDetail(GuiGraphics g, String detail, int color) {
+        if (detail == null || detail.isBlank()) {
+            return;
+        }
+        g.drawString(this.font, detail, leftTooltipAnchorX() + 10,
+                leftTooltipAnchorY() + LEFT_TOOLTIP_DETAIL_Y_OFFSET, color);
+    }
+
+    private int leftTooltipAnchorX() {
+        return this.bottomPanel.resolveBottomPanelLayout().panelX() + LEFT_TOOLTIP_X_OFFSET;
+    }
+
+    private int leftTooltipAnchorY() {
+        return Math.max(TOP_H + 8, this.bottomPanel.getBottomY() - LEFT_TOOLTIP_Y_OFFSET);
     }
 
     /**
