@@ -16,6 +16,7 @@ import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.util.RtsCountUtil;
 import com.rtsbuilding.rtsbuilding.util.RtsPinyinSearch;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -54,8 +55,6 @@ final class RtsStoragePageBuilder {
     private static final String CATEGORY_ALL = "all";
     private static final String CATEGORY_MOD_PREFIX = "mod|";
     private static final String CATEGORY_TAB_PREFIX = "tab|";
-    private static final long EFFECTIVELY_INFINITE_COUNT = Long.MAX_VALUE;
-
     private static final Map<String, Set<String>> ITEM_CREATIVE_TAB_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> BROKEN_CREATIVE_TAB_CACHE = ConcurrentHashMap.newKeySet();
     private static volatile boolean creativeTabCacheWarmNormal;
@@ -449,26 +448,15 @@ final class RtsStoragePageBuilder {
         if (sanitized <= 0L) {
             return;
         }
-        counts.merge(key, sanitized, RtsStoragePageBuilder::saturatedAdd);
+        counts.merge(key, sanitized, RtsCountUtil::saturatedAdd);
     }
 
     static long saturatedAdd(long a, long b) {
-        long left = sanitizeCount(a);
-        long right = sanitizeCount(b);
-        if (left == Long.MAX_VALUE || right == Long.MAX_VALUE) {
-            return Long.MAX_VALUE;
-        }
-        if (Long.MAX_VALUE - left < right) {
-            return Long.MAX_VALUE;
-        }
-        return left + right;
+        return RtsCountUtil.saturatedAdd(a, b);
     }
 
     static long sanitizeCount(long value) {
-        if (value <= 0L) {
-            return 0L;
-        }
-        return value >= EFFECTIVELY_INFINITE_COUNT ? Long.MAX_VALUE : value;
+        return RtsCountUtil.sanitizeCount(value);
     }
 
     static long internalFluidCapacityMb(ServerPlayer player) {
