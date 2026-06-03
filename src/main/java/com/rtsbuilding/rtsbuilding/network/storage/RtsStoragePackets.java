@@ -90,6 +90,11 @@ public final class RtsStoragePackets {
                 C2SRtsImportMenuSlotPayload.STREAM_CODEC,
                 RtsStorageNetworkHandlers::handleImportMenuSlot);
 
+        registrar.playToServer(
+                C2SRtsCloseRemoteMenuPayload.TYPE,
+                C2SRtsCloseRemoteMenuPayload.STREAM_CODEC,
+                RtsStorageNetworkHandlers::handleCloseRemoteMenu);
+
         registrar.playToClient(
                 S2CRtsStoragePagePayload.TYPE,
                 S2CRtsStoragePagePayload.STREAM_CODEC,

@@ -11,6 +11,7 @@ import com.rtsbuilding.rtsbuilding.network.camera.C2SRtsCameraMovePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.C2SRtsCraftRecipePayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsFillInventoryPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsFunnelTargetPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsCloseRemoteMenuPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsMinePayload;
@@ -146,6 +147,10 @@ final class RtsClientPacketGateway {
 
     static void sendOpenCraftTerminal() {
         PacketDistributor.sendToServer(new C2SRtsOpenCraftTerminalPayload());
+    }
+
+    static void sendCloseRemoteMenu() {
+        PacketDistributor.sendToServer(new C2SRtsCloseRemoteMenuPayload());
     }
 
     static void sendQuestDetectManual() {

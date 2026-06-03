@@ -149,4 +149,12 @@ public final class RtsStorageNetworkHandlers {
             }
         });
     }
+
+    public static void handleCloseRemoteMenu(C2SRtsCloseRemoteMenuPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageManager.closeRemoteMenuFromClient(serverPlayer);
+            }
+        });
+    }
 }
