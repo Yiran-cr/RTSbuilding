@@ -94,6 +94,10 @@ public final class RtsHomeScreen extends Screen {
         return false;
     }
 
+    @Override
+    protected void renderBlurredBackground(float partialTick) {
+    }
+
     private boolean canRelocateHome() {
         return this.controller.getUnlockedProgressionNodes().contains(RtsProgressionNodes.FIELD_DEPLOYMENT.toString());
     }
