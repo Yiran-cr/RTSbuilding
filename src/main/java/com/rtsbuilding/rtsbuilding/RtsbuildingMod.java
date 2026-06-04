@@ -10,12 +10,10 @@ import com.rtsbuilding.rtsbuilding.server.RtsDamageFeedbackManager;
 import com.rtsbuilding.rtsbuilding.server.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
-import net.minecraft.world.level.block.Blocks;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -65,14 +63,7 @@ public class RtsbuildingMod {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        LOGGER.info("HELLO FROM COMMON SETUP");
-
-        if (Config.LOG_DIRT_BLOCK.getAsBoolean()) {
-            LOGGER.info("DIRT BLOCK >> {}", BuiltInRegistries.BLOCK.getKey(Blocks.DIRT));
-        }
-
-        LOGGER.info("{}{}", Config.MAGIC_NUMBER_INTRODUCTION.get(), Config.MAGIC_NUMBER.getAsInt());
-        Config.ITEM_STRINGS.get().forEach((item) -> LOGGER.info("ITEM >> {}", item));
+        LOGGER.info("RTSBuilding common setup complete");
     }
 
     @SubscribeEvent

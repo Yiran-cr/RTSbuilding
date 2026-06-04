@@ -4,68 +4,43 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.LinkedHashMap;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// An example config class. This is not required, but it's a good idea to have one to keep your config organized.
-// Demonstrates how to use Neo's config APIs
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    public static final ModConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER
-            .comment("Whether to log the dirt block on common setup")
-            .define("logDirtBlock", true);
-
-    public static final ModConfigSpec.IntValue MAGIC_NUMBER = BUILDER
-            .comment("A magic number")
-            .defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
-
-    public static final ModConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER
-            .comment("What you want the introduction message to be for the magic number")
-            .define("magicNumberIntroduction", "The magic number is... ");
-
-    // a list of strings that are treated as resource locations for items
-    public static final ModConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER
-            .comment("A list of items to log on common setup.")
-            .defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), () -> "", Config::validateItemName);
-
     public static final ModConfigSpec.BooleanValue ENABLE_SURVIVAL_PROGRESSION = BUILDER
             .comment("Enable RTS Building survival progression, feature unlocks, home anchors, and progression radius limits.")
+            .translation("rtsbuilding.configuration.enableSurvivalProgression")
             .define("enableSurvivalProgression", false);
 
     public static final ModConfigSpec.BooleanValue SHARE_SURVIVAL_PROGRESSION_WITH_TEAMS = BUILDER
             .comment("When survival progression is enabled, share unlocked progression nodes and RTS home anchors with the player's FTB Team, or vanilla scoreboard team when FTB Teams is unavailable.")
+            .translation("rtsbuilding.configuration.shareSurvivalProgressionWithTeams")
             .define("shareSurvivalProgressionWithTeams", false);
 
     public static final ModConfigSpec.IntValue MAX_ACTION_RADIUS_BLOCKS = BUILDER
             .comment("Maximum RTS action radius in blocks. Used directly when survival progression is disabled, and by the Radius Max skill when survival progression is enabled.")
+            .translation("rtsbuilding.configuration.maxActionRadiusBlocks")
             .defineInRange("maxActionRadiusBlocks", 128, 48, 512);
 
     public static final ModConfigSpec.BooleanValue ENABLE_BLUEPRINTS = BUILDER
             .comment("Enable the RTS blueprint library tab, local blueprint upload, and server-side blueprint placement.")
+            .translation("rtsbuilding.configuration.enableBlueprints")
             .define("enableBlueprints", true);
 
     public static final ModConfigSpec.IntValue MAX_BLUEPRINT_BLOCKS = BUILDER
             .comment("Maximum non-air blocks allowed in one RTS blueprint import, capture, or placement job.")
+            .translation("rtsbuilding.configuration.maxBlueprintBlocks")
             .defineInRange("maxBlueprintBlocks", 20000, 1, 200000);
 
     public static final ModConfigSpec.ConfigValue<List<? extends String>> PROGRESSION_COST_OVERRIDES = BUILDER
             .comment("Skill material overrides. Format: node_path=minecraft:item:count,minecraft:item2:count. Example: ultimine=minecraft:diamond_pickaxe:1,minecraft:redstone_block:1")
+            .translation("rtsbuilding.configuration.progressionCostOverrides")
             .defineListAllowEmpty("progressionCostOverrides", List.of(), () -> "", obj -> obj instanceof String);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
-
-    private static boolean validateItemName(final Object obj) {
-        return obj instanceof String itemName && BuiltInRegistries.ITEM.containsKey(ResourceLocation.parse(itemName));
-    }
 
     public static void setSurvivalProgressionEnabled(boolean enabled) {
         ENABLE_SURVIVAL_PROGRESSION.set(enabled);
