@@ -59,6 +59,11 @@ logs/
 __pycache__/
 *.pyc
 
+# website local build outputs
+website/node_modules/
+website/docs/.vitepress/cache/
+website/docs/.vitepress/dist/
+
 # OS noise
 .DS_Store
 Thumbs.db

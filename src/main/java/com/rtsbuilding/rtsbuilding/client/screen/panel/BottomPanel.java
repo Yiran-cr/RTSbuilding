@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.screen.panel;
 
+import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.client.*;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.*;
@@ -219,9 +220,11 @@ public final class BottomPanel {
     }
 
     private int selectedPlacementStatusX(BottomPanelLayoutTypes.BottomPanelLayout layout) {
-        return bottomPanelTabX(layout, BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS)
-                + bottomPanelTabW(BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS)
-                + 10;
+        List<BottomPanelLayoutTypes.BottomPanelTab> visibleTabs = visibleBottomPanelTabs();
+        BottomPanelLayoutTypes.BottomPanelTab lastTab = visibleTabs.isEmpty()
+                ? BottomPanelLayoutTypes.BottomPanelTab.STORAGE
+                : visibleTabs.get(visibleTabs.size() - 1);
+        return bottomPanelTabX(layout, lastTab) + bottomPanelTabW(lastTab) + 10;
     }
 
     private int selectedPlacementStatusW(BottomPanelLayoutTypes.BottomPanelLayout layout) {
@@ -257,20 +260,34 @@ public final class BottomPanel {
     }
 
     private List<BottomPanelLayoutTypes.BottomPanelTab> visibleBottomPanelTabs() {
+        boolean showBlueprints = hasBlueprintAccess();
         if (isCreativePlayer()) {
-            return List.of(
-                    BottomPanelLayoutTypes.BottomPanelTab.CREATIVE,
-                    BottomPanelLayoutTypes.BottomPanelTab.STORAGE,
-                    BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS);
+            return showBlueprints
+                    ? List.of(
+                            BottomPanelLayoutTypes.BottomPanelTab.CREATIVE,
+                            BottomPanelLayoutTypes.BottomPanelTab.STORAGE,
+                            BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS)
+                    : List.of(
+                            BottomPanelLayoutTypes.BottomPanelTab.CREATIVE,
+                            BottomPanelLayoutTypes.BottomPanelTab.STORAGE);
         }
-        return List.of(BottomPanelLayoutTypes.BottomPanelTab.STORAGE, BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS);
+        return showBlueprints
+                ? List.of(BottomPanelLayoutTypes.BottomPanelTab.STORAGE, BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS)
+                : List.of(BottomPanelLayoutTypes.BottomPanelTab.STORAGE);
     }
 
     private BottomPanelLayoutTypes.BottomPanelTab activeBottomPanelTab() {
         if (this.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.CREATIVE && !isCreativePlayer()) {
             return BottomPanelLayoutTypes.BottomPanelTab.STORAGE;
         }
+        if (this.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && !hasBlueprintAccess()) {
+            return BottomPanelLayoutTypes.BottomPanelTab.STORAGE;
+        }
         return this.bottomPanelTab;
+    }
+
+    private boolean hasBlueprintAccess() {
+        return Config.areBlueprintsEnabled() && screen.hasProgressionNode(RtsProgressionNodes.BLUEPRINTS);
     }
 
     private boolean isCreativePlayer() {

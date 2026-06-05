@@ -1,0 +1,109 @@
+:root {
+  --vp-c-brand-1: #2f6fa8;
+  --vp-c-brand-2: #3f86c5;
+  --vp-c-brand-3: #63a9dc;
+  --vp-c-brand-soft: rgba(63, 134, 197, 0.14);
+  --vp-home-hero-name-background: linear-gradient(120deg, #2f6fa8 0%, #5ca7d5 100%);
+  --vp-home-hero-name-color: transparent;
+}
+
+.dark {
+  --vp-c-brand-1: #82c9f4;
+  --vp-c-brand-2: #5ca7d5;
+  --vp-c-brand-3: #3f86c5;
+  --vp-c-brand-soft: rgba(92, 167, 213, 0.18);
+}
+
+.VPNavBar {
+  border-bottom: 1px solid var(--vp-c-divider);
+  background-color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+}
+
+.dark .VPNavBar {
+  background-color: rgba(27, 27, 31, 0.88);
+}
+
+.VPHero .container {
+  gap: 72px;
+}
+
+@media (min-width: 960px) {
+  .VPHero .container {
+    flex-direction: row-reverse;
+  }
+
+  .VPHero .main {
+    max-width: 560px;
+  }
+}
+
+.VPHero .name {
+  font-weight: 800;
+}
+
+.VPHero .tagline {
+  max-width: 580px;
+  color: var(--vp-c-text-2);
+}
+
+.VPHero .image-src {
+  border-radius: 8px;
+}
+
+.VPFeature {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-2);
+  background: var(--vp-c-bg);
+}
+
+.VPFeature .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--vp-c-default-soft);
+}
+
+.VPSidebarItem.is-active > .item .link > .text,
+.VPSidebarItem.is-active > .item .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.vp-doc h1 {
+  letter-spacing: 0;
+}
+
+.vp-doc h2 {
+  margin-top: 40px;
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 24px;
+}
+
+.vp-doc h2:first-child {
+  border-top: 0;
+}
+
+.vp-doc :not(pre) > code {
+  border: 1px solid var(--vp-c-divider);
+  border-bottom-color: #b8c0c9;
+  border-radius: 5px;
+  padding: 0.12em 0.42em;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vp-doc :not(pre) > code:hover {
+  border-color: var(--vp-c-brand-2);
+}

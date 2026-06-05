@@ -39,10 +39,10 @@ displayName="${mod_name}" #mandatory
 #logoFile="examplemod.png" #optional
 
 # A text field displayed in the mod UI
-#credits="" #optional
+credits="${mod_credits}" #optional
 
 # The authors of the mod, displayed in the mod UI (optional)
-#authors=""
+authors="${mod_authors}"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
