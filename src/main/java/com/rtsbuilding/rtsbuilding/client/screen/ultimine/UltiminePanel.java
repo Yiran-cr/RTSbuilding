@@ -4,35 +4,41 @@ import com.rtsbuilding.rtsbuilding.client.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import org.lwjgl.glfw.GLFW;
 
 import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
 
-public final class UltiminePanel {
-    private BuilderScreen screen;
-    private ClientRtsController controller;
-
-    private boolean ultimineOpen = false;
+/**
+ * Movable Ultimine settings window.
+ *
+ * <p>This class owns only the small Ultimine UI state: open state, limit editing,
+ * and progress display. It deliberately leaves mining execution, packets, camera
+ * input, and storage/container overlays to the existing controller and screen
+ * paths so the window migration does not alter gameplay behavior.
+ */
+public final class UltiminePanel extends RtsWindowPanel {
     private int ultimineLimit = 64;
     private boolean ultimineLimitEditing = false;
     private boolean ultimineLimitSelectAll = false;
     private String ultimineLimitDraft = "";
     private int lastUltimineSentLimit = 0;
 
+    @Override
     public void init(BuilderScreen screen, ClientRtsController controller) {
-        this.screen = screen;
-        this.controller = controller;
+        super.init(screen, controller);
+        this.resizable = false;
     }
 
-    public boolean isOpen() {
-        return this.ultimineOpen;
-    }
-
-    public void setOpen(boolean open) {
-        this.ultimineOpen = open;
+    public void applyOpenState(boolean open) {
+        this.open = open;
+        if (!open) {
+            cancelUltimineLimitEdit();
+        }
     }
 
     public int getLimit() {
@@ -63,21 +69,10 @@ public final class UltiminePanel {
         return this.ultimineLimitEditing;
     }
 
-    public void render(GuiGraphics g, int mouseX, int mouseY) {
-        if (!this.ultimineOpen || !screen.hasProgressionNode(RtsProgressionNodes.ULTIMINE)) {
-            return;
-        }
-        int x = panelX();
-        int y = panelY();
-        if (screen.getFloatingPanelAvailableHeight(y) < ULTIMINE_PANEL_H) {
-            return;
-        }
-
-        RtsClientUiUtil.drawPanelFrame(g, x, y, ULTIMINE_PANEL_W, ULTIMINE_PANEL_H, 0xEE161C24, 0xFF6C839A, 0xFF0D1117);
-        g.fill(x + 1, y + 1, x + ULTIMINE_PANEL_W - 1, y + 20, 0xCC233345);
-        g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.ultimine.title"), x + 8, y + 6, 0xF2F7FF);
-
-        int rowY = y + 32;
+    @Override
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        int x = this.windowX;
+        int rowY = contentY() + 12;
         g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.ultimine.blocks"), x + 8, rowY, 0xD8E3EE);
         RtsClientUiUtil.drawPanelFrame(g, x + 8, rowY + 12, 24, 18, 0xAA1C232D, 0xFF647B92, 0xFF0D1117);
         g.drawCenteredString(screen.font(), "-", x + 20, rowY + 17, 0xFFFFFF);
@@ -98,7 +93,7 @@ public final class UltiminePanel {
         g.drawCenteredString(screen.font(), "MAX", x + 204, rowY + 17, 0xFFFFFF);
 
         int stage = this.controller.getMineProgressStage();
-        int progressY = y + 82;
+        int progressY = contentY() + 62;
         String progressLabel = stage >= 0
                 ? screen.text("screen.rtsbuilding.ultimine.breaking", Math.max(1, this.lastUltimineSentLimit))
                 : screen.text("screen.rtsbuilding.ultimine.ready");
@@ -110,18 +105,13 @@ public final class UltiminePanel {
         }
     }
 
-    public boolean handleClick(double mouseX, double mouseY) {
-        if (!this.ultimineOpen || !screen.hasProgressionNode(RtsProgressionNodes.ULTIMINE)) {
-            return false;
+    @Override
+    protected boolean handleContentClick(double mouseX, double mouseY, int button) {
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            return true;
         }
-        int x = panelX();
-        int y = panelY();
-        if (screen.getFloatingPanelAvailableHeight(y) < ULTIMINE_PANEL_H
-                || !inside(mouseX, mouseY, x, y, ULTIMINE_PANEL_W, ULTIMINE_PANEL_H)) {
-            return false;
-        }
-
-        int rowY = y + 32;
+        int x = this.windowX;
+        int rowY = contentY() + 12;
         if (inside(mouseX, mouseY, x + 8, rowY + 12, 24, 18)) {
             adjustUltimineLimit(screen.hasShiftDown() ? -16 : -1);
             return true;
@@ -150,16 +140,11 @@ public final class UltiminePanel {
     }
 
     public boolean isInsideLimitInput(double mouseX, double mouseY) {
-        if (!this.ultimineOpen || !screen.hasProgressionNode(RtsProgressionNodes.ULTIMINE)) {
+        if (!isOpen() || !screen.hasProgressionNode(RtsProgressionNodes.ULTIMINE) || !hasInitializedBounds()) {
             return false;
         }
-        int x = panelX();
-        int y = panelY();
-        if (screen.getFloatingPanelAvailableHeight(y) < ULTIMINE_PANEL_H) {
-            return false;
-        }
-        int rowY = y + 32;
-        return inside(mouseX, mouseY, x + 38, rowY + 12, 58, 18);
+        int rowY = contentY() + 12;
+        return inside(mouseX, mouseY, this.windowX + 38, rowY + 12, 58, 18);
     }
 
     public boolean handleKeyPressed(int keyCode) {
@@ -208,19 +193,57 @@ public final class UltiminePanel {
         return true;
     }
 
-    public void applyUiState() {
-        // UI state is applied externally via setOpen/setLimit
+    @Override
+    protected Component getTitle() {
+        return Component.translatable("screen.rtsbuilding.ultimine.title");
     }
 
-    // ======================== 内部辅助方法 ========================
-
-    private int panelX() {
-        return screen.width - ULTIMINE_PANEL_W - 10;
+    @Override
+    protected int getDefaultWidth() {
+        return ULTIMINE_PANEL_W;
     }
 
-    private int panelY() {
+    @Override
+    protected int getDefaultHeight() {
+        return ULTIMINE_PANEL_H;
+    }
+
+    @Override
+    protected int getMinWindowWidth() {
+        return ULTIMINE_PANEL_W;
+    }
+
+    @Override
+    protected int getMinWindowHeight() {
+        return ULTIMINE_PANEL_H;
+    }
+
+    @Override
+    protected boolean canShowWindow() {
+        return screen.hasProgressionNode(RtsProgressionNodes.ULTIMINE);
+    }
+
+    @Override
+    protected void computeDefaultPosition() {
+        int y = TOP_H + 10;
         PanelLayouts.QuickBuildPanelLayout quickBuildLayout = screen.resolveQuickBuildPanelLayout();
-        return TOP_H + 10 + (quickBuildLayout == null ? 0 : quickBuildLayout.h() + 8);
+        if (quickBuildLayout != null) {
+            y = quickBuildLayout.y() + quickBuildLayout.h() + 8;
+        }
+        int maxX = Math.max(4, screen.width - ULTIMINE_PANEL_W - 4);
+        this.windowX = Mth.clamp(screen.width - ULTIMINE_PANEL_W - 10, 4, maxX);
+        this.windowY = y;
+    }
+
+    @Override
+    protected void onClose() {
+        cancelUltimineLimitEdit();
+        screen.persistUiState();
+    }
+
+    @Override
+    protected void onBoundsChanged() {
+        screen.persistUiState();
     }
 
     private void adjustUltimineLimit(int delta) {

@@ -134,13 +134,14 @@ public abstract class RtsWindowPanel implements RtsPanel {
     }
 
     public void setOpen(boolean open) {
-        if (open && !this.open) {
+        boolean wasOpen = this.open;
+        if (open && !wasOpen) {
             initializePosition();
         }
-        if (!open && this.open) {
+        this.open = open;
+        if (!open && wasOpen) {
             onClose();
         }
-        this.open = open;
     }
 
     public void toggleOpen() {
@@ -163,7 +164,12 @@ public abstract class RtsWindowPanel implements RtsPanel {
         return this.windowHeight;
     }
 
+    public boolean hasInitializedBounds() {
+        return this.positionInitialized;
+    }
+
     public void setPosition(int x, int y) {
+        ensureSizeInitialized();
         this.windowX = x;
         this.windowY = y;
         this.positionInitialized = true;
@@ -171,6 +177,7 @@ public abstract class RtsWindowPanel implements RtsPanel {
     }
 
     public void setSize(int width, int height) {
+        ensureSizeInitialized();
         this.windowWidth = width;
         this.windowHeight = height;
         clampWindowSize();
@@ -257,6 +264,12 @@ public abstract class RtsWindowPanel implements RtsPanel {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (!this.open) {
+            this.dragging = false;
+            this.resizing = false;
+            this.resizeEdge = ResizeEdge.NONE;
+            return false;
+        }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             boolean changed = this.dragging || this.resizing;
             this.dragging = false;
@@ -528,6 +541,14 @@ public abstract class RtsWindowPanel implements RtsPanel {
     private void initializePosition() {
         if (!this.positionInitialized) {
             resetToDefaultBounds();
+        }
+    }
+
+    private void ensureSizeInitialized() {
+        if (this.windowWidth <= 0 || this.windowHeight <= 0) {
+            this.windowWidth = this.defaultWidth;
+            this.windowHeight = this.defaultHeight;
+            clampWindowSize();
         }
     }
 

@@ -449,10 +449,7 @@ public final class BuilderScreen extends Screen {
                     && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, this.bottomPanel.getBottomY(), this.controller)) {
                 return true;
             }
-            if (this.quickBuildPanel.handleClick(mouseX, mouseY)) {
-                return true;
-            }
-            if (this.ultiminePanel.handleClick(mouseX, mouseY)) {
+            if (handleFloatingWindowClick(mouseX, mouseY, button)) {
                 return true;
             }
             if (this.topBarPanel.handleClick(mouseX, mouseY)) {
@@ -568,6 +565,9 @@ public final class BuilderScreen extends Screen {
             this.cameraInput.stopActiveMining();
             return true;
         }
+        if (handleFloatingWindowRelease(mouseX, mouseY, button)) {
+            return true;
+        }
         if (this.cameraInput.isRightDragActive(button)) {
             return this.cameraInput.endRightPress(mouseX, mouseY, button)
                     ? runPrimaryActionAt(mouseX, mouseY, button)
@@ -611,6 +611,9 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (this.guidePanel.isOpen()) {
+            return true;
+        }
+        if (handleFloatingWindowDrag(mouseX, mouseY, button, dragX, dragY)) {
             return true;
         }
         if (this.cameraInput.handleRightDrag(mouseX, mouseY, button, dragX, dragY)) {
@@ -868,6 +871,9 @@ public final class BuilderScreen extends Screen {
         }
         if (this.guidePanel.isOpen()) {
             return this.guidePanel.mouseScrolled(mouseX, mouseY, scrollY);
+        }
+        if (handleFloatingWindowScroll(mouseX, mouseY, scrollX, scrollY)) {
+            return true;
         }
         if (isInsideBottomPanel(mouseX, mouseY)) {
             return this.bottomPanel.handleMouseScrolled(mouseX, mouseY, scrollY);
@@ -1560,7 +1566,13 @@ public final class BuilderScreen extends Screen {
     private void applyStoredUiState() {
         RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
         this.quickBuildPanel.setQuickBuildOpen(state.quickBuildOpen);
-        this.ultiminePanel.setOpen(state.ultimineOpen);
+        if (state.quickBuildX >= 0 && state.quickBuildY >= 0) {
+            this.quickBuildPanel.setPosition(state.quickBuildX, state.quickBuildY);
+        }
+        this.ultiminePanel.applyOpenState(state.ultimineOpen);
+        if (state.ultimineX >= 0 && state.ultimineY >= 0) {
+            this.ultiminePanel.setPosition(state.ultimineX, state.ultimineY);
+        }
         this.ultiminePanel.setLimit(state.ultimineLimit);
         this.fixedRtsGuiScale = sanitizeRtsGuiScale(state.rtsGuiScale);
         this.controller.setStartCameraAtPlayerHead(state.startCameraAtPlayerHead);
@@ -1600,7 +1612,15 @@ public final class BuilderScreen extends Screen {
         state.fillMode = this.shapeController.getShapeFillMode().name();
         state.rotationDegrees = this.shapeController.getShapeRotateDegrees();
         state.quickBuildOpen = this.quickBuildPanel.isQuickBuildOpen();
+        if (this.quickBuildPanel.hasInitializedBounds()) {
+            state.quickBuildX = this.quickBuildPanel.getWindowX();
+            state.quickBuildY = this.quickBuildPanel.getWindowY();
+        }
         state.ultimineOpen = this.ultiminePanel.isOpen();
+        if (this.ultiminePanel.hasInitializedBounds()) {
+            state.ultimineX = this.ultiminePanel.getWindowX();
+            state.ultimineY = this.ultiminePanel.getWindowY();
+        }
         state.ultimineLimit = this.ultiminePanel.getLimit();
         state.chunkCurtainVisible = this.controller.isChunkCurtainVisible();
         state.rtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
@@ -1694,6 +1714,34 @@ public final class BuilderScreen extends Screen {
     public void toggleUltimine() {
         this.ultiminePanel.setOpen(!this.ultiminePanel.isOpen());
     }
+
+    private boolean handleFloatingWindowClick(double mouseX, double mouseY, int button) {
+        if (this.ultiminePanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return this.quickBuildPanel.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleFloatingWindowRelease(double mouseX, double mouseY, int button) {
+        boolean handled = this.ultiminePanel.mouseReleased(mouseX, mouseY, button);
+        handled = this.quickBuildPanel.mouseReleased(mouseX, mouseY, button) || handled;
+        return handled;
+    }
+
+    private boolean handleFloatingWindowDrag(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (this.ultiminePanel.mouseDragged(mouseX, mouseY, button, dragX, dragY)) {
+            return true;
+        }
+        return this.quickBuildPanel.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    private boolean handleFloatingWindowScroll(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (this.ultiminePanel.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
+            return true;
+        }
+        return this.quickBuildPanel.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
     /** Closes the gear (settings) menu. */
     public void closeGearMenu() {
         this.gearMenuPanel.close();
